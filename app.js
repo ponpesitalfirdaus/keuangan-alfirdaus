@@ -125,6 +125,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
   document.getElementById('json-restore').addEventListener('change', handleJSONRestore);
+  document.getElementById('newclass-source').addEventListener('change', (e) => {
+    const optBox = document.getElementById('newclass-migration-options');
+    optBox.classList.toggle('hidden', !e.target.value);
+  });
 });
 
 function loadData() {
@@ -147,7 +151,7 @@ function saveData() {
 }
 
 // ============================================================================
-// HELPER FORMAT RUPIAH & TERBILANG
+// HELPER FORMAT RUPIAH, TERBILANG, DETEKSI UNIT & SEMESTER
 // ============================================================================
 function formatRupiah(num) {
   const n = Number(num) || 0;
@@ -183,14 +187,38 @@ function detectMonthKey(headerText) {
 }
 
 function inferUnitFromSheet(sheetName) {
-  const s = sheetName.toLowerCase();
+  const s = String(sheetName || '').toLowerCase();
+  const isAlumni = s.startsWith('a.') || s.includes('alumni');
   if (s.includes('7') || s.includes('8') || s.includes('9') || s.includes('smp')) {
-    return 'SMPIT Al Firdaus';
+    return isAlumni ? 'Alumni SMPIT Al Firdaus' : 'SMPIT Al Firdaus';
   }
   if (s.includes('10') || s.includes('11') || s.includes('12') || s.includes('sma')) {
-    return 'SMAIT Al Firdaus';
+    return isAlumni ? 'Alumni SMAIT Al Firdaus' : 'SMAIT Al Firdaus';
   }
   return 'Ponpes SIT Al Firdaus';
+}
+
+function detectSheetCategory(sheetName) {
+  const s = String(sheetName || '').toLowerCase();
+  if (s.startsWith('a.') || s.includes('alumni')) return 'ALUMNI';
+  if (s.includes('7') || s.includes('8') || s.includes('9') || s.includes('smp')) return 'SMPIT';
+  if (s.includes('10') || s.includes('11') || s.includes('12') || s.includes('sma')) return 'SMAIT';
+  return 'OTHER';
+}
+
+function detectSheetSemester(sheetName) {
+  const s = String(sheetName || '').toLowerCase();
+  if (s.startsWith('a.') || s.includes('alumni')) return 'ALUMNI';
+  if (s.includes('smt 2') || s.includes('smt2') || s.includes('semester 2')) return 'SMT2';
+  if (s.includes('smt 1') || s.includes('smt1') || s.includes('semester 1') || s === 'kelas 10' || s === 'kelas 11') return 'SMT1';
+  return 'SMT1';
+}
+
+function getSemesterLabel(smtCode) {
+  if (smtCode === 'SMT1') return 'Semester 1';
+  if (smtCode === 'SMT2') return 'Semester 2';
+  if (smtCode === 'ALUMNI') return 'Arsip Alumni';
+  return 'Umum';
 }
 
 // ============================================================================
@@ -351,7 +379,6 @@ function getStudentArrears(student, cutoffMonth) {
     let included = true;
     if (cutoffLower !== 'all' && fee.type === 'monthly' && fee.monthKey) {
       const mIdx = MONTH_ORDER.indexOf(fee.monthKey);
-      // Cek apakah sheet ini semester 1 (Juli-Des) atau semester 2 (Jan-Jun)
       const isSmt2Cutoff = cutoffIdx >= 6; // Januari..Juni
       const isSmt2Item = mIdx >= 6;
       if (!isSmt2Cutoff && isSmt2Item) {
@@ -371,27 +398,73 @@ function getStudentArrears(student, cutoffMonth) {
 }
 
 // ============================================================================
-// RENDER UI TABEL, STATISTIK, & REKAPITULASI
+// FILTER & RENDER UI TABEL, STATISTIK, & REKAPITULASI
 // ============================================================================
+function onUnitOrSemesterChange(isSemesterChanged = false) {
+  const smtFilter = document.getElementById('filter-semester').value;
+  const cutoffSelect = document.getElementById('filter-cutoff');
+
+  // Penyesuaian otomatis cut-off saat Bendahara berpindah Semester 1 <-> Semester 2
+  if (isSemesterChanged) {
+    const currentCutoffIdx = MONTH_ORDER.indexOf(cutoffSelect.value.toLowerCase());
+    if (smtFilter === 'SMT2' && currentCutoffIdx >= 0 && currentCutoffIdx < 6) {
+      cutoffSelect.value = 'ALL';
+    } else if (smtFilter === 'SMT1' && currentCutoffIdx >= 6) {
+      cutoffSelect.value = 'Oktober';
+    }
+  }
+
+  populateSheetFilter();
+  renderTable();
+}
+
+function resetFilters() {
+  document.getElementById('filter-unit').value = 'ALL';
+  document.getElementById('filter-semester').value = 'ALL';
+  document.getElementById('filter-cutoff').value = 'Oktober';
+  document.getElementById('filter-status').value = 'ALL';
+  document.getElementById('filter-search').value = '';
+  populateSheetFilter();
+  renderTable();
+}
+
 function populateSheetFilter() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
   const select = document.getElementById('filter-sheet');
   const currentVal = select.value;
-  const uniqueSheets = [...new Set(students.map((s) => s.sheet))];
 
-  select.innerHTML = '<option value="ALL">-- Semua Kelas / Sheet --</option>';
-  uniqueSheets.forEach((sh) => {
+  const matchingSheets = [...new Set(
+    students
+      .filter((s) => {
+        if (unitFilter !== 'ALL' && detectSheetCategory(s.sheet) !== unitFilter) return false;
+        if (smtFilter !== 'ALL' && detectSheetSemester(s.sheet) !== smtFilter) return false;
+        return true;
+      })
+      .map((s) => s.sheet)
+  )];
+
+  select.innerHTML = '<option value="ALL">-- Semua Kelas yang Cocok --</option>';
+  matchingSheets.forEach((sh) => {
     const opt = document.createElement('option');
     opt.value = sh;
     opt.textContent = sh;
     select.appendChild(opt);
   });
 
-  if (uniqueSheets.includes(currentVal)) {
-    select.value = currentVal;
+  select.value = matchingSheets.includes(currentVal) ? currentVal : 'ALL';
+
+  // Perbarui datalist pada Modal Tambah/Edit Santri
+  const allSheets = [...new Set(students.map((s) => s.sheet))];
+  const datalist = document.getElementById('existing-sheets-list');
+  if (datalist) {
+    datalist.innerHTML = allSheets.map((sh) => `<option value="${sh}"></option>`).join('');
   }
 }
 
 function renderTable() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
   const sheetFilter = document.getElementById('filter-sheet').value;
   const cutoffFilter = document.getElementById('filter-cutoff').value;
   const statusFilter = document.getElementById('filter-status').value;
@@ -406,6 +479,8 @@ function renderTable() {
   let grandTotalTunggakan = 0;
 
   const filtered = students.filter((st) => {
+    if (unitFilter !== 'ALL' && detectSheetCategory(st.sheet) !== unitFilter) return false;
+    if (smtFilter !== 'ALL' && detectSheetSemester(st.sheet) !== smtFilter) return false;
     if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return false;
     if (searchFilter && !st.nama.toLowerCase().includes(searchFilter)) return false;
 
@@ -421,6 +496,13 @@ function renderTable() {
     if (total === 0) countLunas++;
     else countMenunggak++;
     grandTotalTunggakan += total;
+
+    const smtCode = detectSheetSemester(st.sheet);
+    const smtBadgeColor = smtCode === 'SMT2'
+      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+      : smtCode === 'ALUMNI'
+        ? 'bg-amber-50 text-amber-700 border-amber-200'
+        : 'bg-teal-50 text-teal-700 border-teal-200';
 
     const badgesHtml = activeItems.length > 0
       ? activeItems.map((it) => `<span class="inline-block bg-rose-50 text-rose-700 border border-rose-200 text-[11px] px-2 py-0.5 rounded mr-1 mb-1">${it.label}: <b>${formatRupiah(it.amount)}</b></span>`).join('')
@@ -439,7 +521,11 @@ function renderTable() {
         <div class="text-[11px] text-slate-400">${st.wa ? '<i class="fa-brands fa-whatsapp text-green-600"></i> ' + st.wa : 'No. WA belum diisi'}</div>
       </td>
       <td class="px-4 py-3">
-        <span class="bg-slate-100 text-slate-700 font-semibold text-xs px-2 py-1 rounded">${st.sheet}</span>
+        <div class="flex flex-wrap items-center gap-1">
+          <span class="bg-slate-100 text-slate-800 font-bold text-xs px-2 py-0.5 rounded">${st.sheet}</span>
+          <span class="border text-[10px] font-semibold px-1.5 py-0.5 rounded ${smtBadgeColor}">${getSemesterLabel(smtCode)}</span>
+        </div>
+        <div class="text-[11px] text-slate-500 mt-0.5">${st.unit}</div>
       </td>
       <td class="px-4 py-3 text-right font-medium text-slate-600">${formatRupiah(st.sppDasar)}</td>
       <td class="px-4 py-3 max-w-xs">${badgesHtml}</td>
@@ -470,8 +556,17 @@ function renderTable() {
   }
 
   // Update Kartu Statistik
+  let contextLabel = 'Semua Kelas / Unit';
+  if (sheetFilter !== 'ALL') contextLabel = `Kelas: ${sheetFilter}`;
+  else if (unitFilter !== 'ALL' || smtFilter !== 'ALL') {
+    const parts = [];
+    if (unitFilter !== 'ALL') parts.push(unitFilter);
+    if (smtFilter !== 'ALL') parts.push(getSemesterLabel(smtFilter));
+    contextLabel = parts.join(' - ');
+  }
+
   document.getElementById('stat-total-santri').textContent = countSantri;
-  document.getElementById('stat-kelas-aktif').textContent = sheetFilter === 'ALL' ? 'Semua Kelas / Unit' : `Kelas / Sheet: ${sheetFilter}`;
+  document.getElementById('stat-kelas-aktif').textContent = contextLabel;
   document.getElementById('stat-lunas').textContent = countLunas;
   document.getElementById('stat-menunggak').textContent = countMenunggak;
   document.getElementById('stat-total-tunggakan').textContent = formatRupiah(grandTotalTunggakan);
@@ -481,15 +576,31 @@ function renderTable() {
 }
 
 function renderRekap() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
+  const sheetFilter = document.getElementById('filter-sheet').value;
   const cutoffFilter = document.getElementById('filter-cutoff').value;
+
   const tbody = document.getElementById('rekap-body');
   const tfoot = document.getElementById('rekap-foot');
   tbody.innerHTML = '';
 
   const grouped = {};
   students.forEach((st) => {
+    if (unitFilter !== 'ALL' && detectSheetCategory(st.sheet) !== unitFilter) return;
+    if (smtFilter !== 'ALL' && detectSheetSemester(st.sheet) !== smtFilter) return;
+    if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return;
+
     if (!grouped[st.sheet]) {
-      grouped[st.sheet] = { sheet: st.sheet, unit: st.unit, totalSantri: 0, lunas: 0, menunggak: 0, nominal: 0 };
+      grouped[st.sheet] = {
+        sheet: st.sheet,
+        unit: st.unit,
+        semester: getSemesterLabel(detectSheetSemester(st.sheet)),
+        totalSantri: 0,
+        lunas: 0,
+        menunggak: 0,
+        nominal: 0
+      };
     }
     const { total } = getStudentArrears(st, cutoffFilter);
     grouped[st.sheet].totalSantri++;
@@ -506,11 +617,18 @@ function renderRekap() {
     sumNominal += g.nominal;
 
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-50';
+    tr.className = 'hover:bg-slate-50 cursor-pointer';
+    tr.title = 'Klik untuk melihat detail santri kelas ini';
+    tr.onclick = () => {
+      document.getElementById('filter-sheet').value = g.sheet;
+      switchTab('tagihan');
+      renderTable();
+    };
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
-      <td class="px-4 py-3 font-bold text-slate-800">${g.sheet}</td>
+      <td class="px-4 py-3 font-bold text-emerald-800 underline">${g.sheet}</td>
       <td class="px-4 py-3 text-slate-600">${g.unit}</td>
+      <td class="px-4 py-3 text-xs font-semibold text-slate-600">${g.semester}</td>
       <td class="px-4 py-3 text-center">${g.totalSantri}</td>
       <td class="px-4 py-3 text-center text-emerald-700 font-semibold">${g.lunas}</td>
       <td class="px-4 py-3 text-center text-rose-600 font-semibold">${g.menunggak}</td>
@@ -519,9 +637,13 @@ function renderRekap() {
     tbody.appendChild(tr);
   });
 
+  if (Object.keys(grouped).length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-400">Tidak ada data kelas pada filter ini.</td></tr>';
+  }
+
   tfoot.innerHTML = `
     <tr>
-      <td colspan="3" class="px-4 py-3 text-right uppercase text-xs">Grand Total Seluruh Unit (${cutoffFilter === 'ALL' ? 'Semua Bulan' : 's.d. ' + cutoffFilter}):</td>
+      <td colspan="4" class="px-4 py-3 text-right uppercase text-xs">Grand Total (${cutoffFilter === 'ALL' ? 'Semua Bulan' : 's.d. ' + cutoffFilter}):</td>
       <td class="px-4 py-3 text-center">${sumSantri}</td>
       <td class="px-4 py-3 text-center">${sumLunas}</td>
       <td class="px-4 py-3 text-center">${sumMenunggak}</td>
@@ -576,6 +698,13 @@ function toggleBayarItem(checkbox) {
   recalcBayarTotal();
 }
 
+function checkAllBayarItems() {
+  document.querySelectorAll('.bayar-check').forEach((chk) => {
+    chk.checked = true;
+    toggleBayarItem(chk);
+  });
+}
+
 function recalcBayarTotal() {
   let sum = 0;
   document.querySelectorAll('.bayar-amount').forEach((inp) => {
@@ -604,6 +733,7 @@ function submitPembayaran() {
       st.fees[idx].amount -= actualPay;
       totalPaid += actualPay;
       paidDetails.push({
+        feeIndex: idx,
         label: st.fees[idx].label,
         paid: actualPay,
         remaining: st.fees[idx].amount
@@ -639,6 +769,33 @@ function submitPembayaran() {
   openPrintKwitansi(txRecord.id);
 }
 
+function cancelTransaction(txId) {
+  const txIdx = transactions.findIndex((t) => t.id === txId);
+  if (txIdx === -1) return;
+  const tx = transactions[txIdx];
+
+  if (!confirm(`Batalkan transaksi ${tx.noKwitansi} (${tx.nama} - ${formatRupiah(tx.totalPaid)})?\n\nSaldo tunggakan santri akan dikembalikan seperti sebelum pembayaran ini.`)) {
+    return;
+  }
+
+  const st = students.find((s) => s.id === tx.studentId);
+  if (st) {
+    tx.details.forEach((d) => {
+      const feeObj = (typeof d.feeIndex === 'number' && st.fees[d.feeIndex])
+        ? st.fees[d.feeIndex]
+        : st.fees.find((f) => f.label === d.label);
+      if (feeObj) {
+        feeObj.amount += Number(d.paid) || 0;
+      }
+    });
+  }
+
+  transactions.splice(txIdx, 1);
+  saveData();
+  renderTable();
+  renderRiwayat();
+}
+
 function renderRiwayat() {
   document.getElementById('badge-transaksi').textContent = transactions.length;
   const tbody = document.getElementById('riwayat-body');
@@ -667,6 +824,9 @@ function renderRiwayat() {
           </button>
           <button onclick="sendKwitansiWA('${tx.id}')" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2.5 py-1 rounded" title="Kirim Bukti Bayar via WA">
             <i class="fa-brands fa-whatsapp"></i>
+          </button>
+          <button onclick="cancelTransaction('${tx.id}')" class="bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs px-2 py-1 rounded" title="Batalkan / Koreksi Transaksi">
+            <i class="fa-solid fa-rotate-left"></i>
           </button>
         </div>
       </td>
@@ -913,8 +1073,9 @@ function printRekapSummary() {
       <thead class="bg-slate-100 border-b border-slate-300">
         <tr>
           <th class="px-3 py-2">No</th>
-          <th class="px-3 py-2 text-left">Kelas / Kelompok</th>
+          <th class="px-3 py-2 text-left">Kelas / Sheet</th>
           <th class="px-3 py-2 text-left">Unit</th>
+          <th class="px-3 py-2 text-left">Semester</th>
           <th class="px-3 py-2">Jml Santri</th>
           <th class="px-3 py-2">Lunas</th>
           <th class="px-3 py-2">Menunggak</th>
@@ -930,21 +1091,20 @@ function printRekapSummary() {
 }
 
 // ============================================================================
-// TAMBAH & EDIT SANTRI
+// TAMBAH, EDIT, HAPUS SANTRI & BUAT KELAS / SEMESTER BARU
 // ============================================================================
 function openAddStudentModal() {
+  const currentSheetFilter = document.getElementById('filter-sheet').value;
   document.getElementById('edit-modal-title').textContent = 'Tambah Data Santri Baru';
   document.getElementById('edit-student-id').value = '';
   document.getElementById('edit-nama').value = '';
   document.getElementById('edit-wa').value = '';
-  document.getElementById('edit-sheet').value = '7 smt 1';
+  document.getElementById('edit-sheet').value = currentSheetFilter !== 'ALL' ? currentSheetFilter : '7 smt 1';
   document.getElementById('edit-spp').value = 850000;
+  document.getElementById('btn-delete-student').classList.add('hidden');
 
-  const container = document.getElementById('edit-fees-container');
-  container.innerHTML = '';
-  ['U. Pangkal', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].forEach((lbl) => {
-    addEditFeeRow(lbl, 0);
-  });
+  const isSmt2 = detectSheetSemester(document.getElementById('edit-sheet').value) === 'SMT2';
+  applyFeeTemplate(isSmt2 ? 'SMT2' : 'SMT1');
   openModal('modal-edit');
 }
 
@@ -958,11 +1118,30 @@ function openEditModal(studentId) {
   document.getElementById('edit-wa').value = st.wa || '';
   document.getElementById('edit-sheet').value = st.sheet;
   document.getElementById('edit-spp').value = st.sppDasar;
+  document.getElementById('btn-delete-student').classList.remove('hidden');
 
   const container = document.getElementById('edit-fees-container');
   container.innerHTML = '';
   st.fees.forEach((f) => addEditFeeRow(f.label, f.amount));
   openModal('modal-edit');
+}
+
+function applyFeeTemplate(type) {
+  const sppVal = parseNumericCell(document.getElementById('edit-spp').value);
+  const container = document.getElementById('edit-fees-container');
+  container.innerHTML = '';
+
+  if (type === 'SMT1') {
+    addEditFeeRow('U. Pangkal', 0);
+    ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].forEach((m) => {
+      addEditFeeRow(m, sppVal);
+    });
+  } else if (type === 'SMT2') {
+    addEditFeeRow('smt 1 + U. Pangkal', 0);
+    ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni'].forEach((m) => {
+      addEditFeeRow(m, sppVal);
+    });
+  }
 }
 
 function addEditFeeRow(label = '', amount = 0) {
@@ -1023,21 +1202,179 @@ function saveStudentEdit() {
   closeModal('modal-edit');
 }
 
+function deleteCurrentStudent() {
+  const id = document.getElementById('edit-student-id').value;
+  const st = students.find((s) => s.id === id);
+  if (!st) return;
+
+  if (!confirm(`Yakin ingin menghapus data santri "${st.nama}" (${st.sheet}) secara permanen?`)) return;
+
+  students = students.filter((s) => s.id !== id);
+  saveData();
+  populateSheetFilter();
+  renderTable();
+  closeModal('modal-edit');
+}
+
+// ============================================================================
+// BUAT KELAS / SEMESTER BARU (MIGRASI MASSAL ANTAR SEMESTER)
+// ============================================================================
+function openNewClassModal() {
+  document.getElementById('newclass-name').value = '';
+  const sourceSelect = document.getElementById('newclass-source');
+  const uniqueSheets = [...new Set(students.map((s) => s.sheet))];
+
+  sourceSelect.innerHTML = '<option value="">-- Buat Kelas Kosong (Tambah Santri Manual Nanti) --</option>';
+  uniqueSheets.forEach((sh) => {
+    const count = students.filter((s) => s.sheet === sh).length;
+    const opt = document.createElement('option');
+    opt.value = sh;
+    opt.textContent = `Salin dari: ${sh} (${count} santri)`;
+    sourceSelect.appendChild(opt);
+  });
+
+  document.getElementById('newclass-migration-options').classList.add('hidden');
+  openModal('modal-new-class');
+}
+
+function createNewClass() {
+  const newSheetName = document.getElementById('newclass-name').value.trim();
+  const sourceSheet = document.getElementById('newclass-source').value;
+
+  if (!newSheetName) {
+    alert('Nama Kelas / Sheet baru wajib diisi (contoh: 10 smt 2).');
+    return;
+  }
+
+  const alreadyExists = students.some((s) => s.sheet.toLowerCase() === newSheetName.toLowerCase());
+  if (alreadyExists) {
+    alert(`Kelas / Sheet "${newSheetName}" sudah ada. Gunakan nama lain.`);
+    return;
+  }
+
+  if (!sourceSheet) {
+    // Buat 1 santri template awal agar sheet muncul di filter
+    const isSmt2 = detectSheetSemester(newSheetName) === 'SMT2';
+    const months = isSmt2
+      ? ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni']
+      : ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+    students.push({
+      id: 'st-' + Date.now(),
+      sheet: newSheetName,
+      unit: inferUnitFromSheet(newSheetName),
+      tahunAjaran: '2026-2027',
+      nama: 'Santri Baru (' + newSheetName + ')',
+      wa: '',
+      sppDasar: 850000,
+      fees: [
+        { label: isSmt2 ? 'smt 1 + U. Pangkal' : 'U. Pangkal', amount: 0, type: 'fixed', monthKey: null },
+        ...months.map((m) => ({ label: m, amount: 0, type: 'monthly', monthKey: m.toLowerCase() }))
+      ]
+    });
+  } else {
+    const carryArrears = document.getElementById('newclass-carry-arrears').checked;
+    const monthsMode = document.getElementById('newclass-months').value;
+    const sourceStudents = students.filter((s) => s.sheet === sourceSheet);
+
+    sourceStudents.forEach((src, i) => {
+      const { total: prevArrears } = getStudentArrears(src, 'ALL');
+      const newFees = [];
+
+      if (carryArrears) {
+        newFees.push({
+          label: `Sisa ${sourceSheet}`,
+          amount: prevArrears,
+          type: 'fixed',
+          monthKey: null
+        });
+      }
+
+      if (monthsMode === 'SMT2') {
+        ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni'].forEach((m) => {
+          newFees.push({ label: m, amount: src.sppDasar, type: 'monthly', monthKey: m.toLowerCase() });
+        });
+      } else if (monthsMode === 'SMT1') {
+        ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].forEach((m) => {
+          newFees.push({ label: m, amount: src.sppDasar, type: 'monthly', monthKey: m.toLowerCase() });
+        });
+      }
+
+      students.push({
+        id: `st-${Date.now()}-${i}`,
+        sheet: newSheetName,
+        unit: inferUnitFromSheet(newSheetName),
+        tahunAjaran: src.tahunAjaran || '2026-2027',
+        nama: src.nama,
+        wa: src.wa || '',
+        sppDasar: src.sppDasar,
+        fees: newFees
+      });
+    });
+  }
+
+  saveData();
+  populateSheetFilter();
+  document.getElementById('filter-unit').value = 'ALL';
+  document.getElementById('filter-semester').value = 'ALL';
+  document.getElementById('filter-sheet').value = newSheetName;
+  document.getElementById('filter-cutoff').value = 'ALL';
+  renderTable();
+  closeModal('modal-new-class');
+  alert(`Kelas / Semester "${newSheetName}" berhasil dibuat!`);
+}
+
 // ============================================================================
 // EXPORT REKAP EXCEL & BACKUP JSON
 // ============================================================================
 function exportToExcel() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
+  const sheetFilter = document.getElementById('filter-sheet').value;
   const cutoffFilter = document.getElementById('filter-cutoff').value;
+
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Rekapitulasi Keseluruhan
-  const allRows = students.map((st, idx) => {
+  // Filter santri sesuai pilihan aktif
+  const targetStudents = students.filter((st) => {
+    if (unitFilter !== 'ALL' && detectSheetCategory(st.sheet) !== unitFilter) return false;
+    if (smtFilter !== 'ALL' && detectSheetSemester(st.sheet) !== smtFilter) return false;
+    if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return false;
+    return true;
+  });
+
+  // Sheet 1: Ringkasan per Kelas / Semester
+  const grouped = {};
+  targetStudents.forEach((st) => {
+    if (!grouped[st.sheet]) {
+      grouped[st.sheet] = {
+        'Kelas / Sheet': st.sheet,
+        Unit: st.unit,
+        Semester: getSemesterLabel(detectSheetSemester(st.sheet)),
+        'Jumlah Santri': 0,
+        'Santri Lunas': 0,
+        'Santri Menunggak': 0,
+        'Total Nominal Tunggakan': 0
+      };
+    }
+    const { total } = getStudentArrears(st, cutoffFilter);
+    grouped[st.sheet]['Jumlah Santri']++;
+    if (total === 0) grouped[st.sheet]['Santri Lunas']++;
+    else grouped[st.sheet]['Santri Menunggak']++;
+    grouped[st.sheet]['Total Nominal Tunggakan'] += total;
+  });
+  const wsSummary = XLSX.utils.json_to_sheet(Object.values(grouped));
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan per Kelas');
+
+  // Sheet 2: Rincian per Santri
+  const allRows = targetStudents.map((st, idx) => {
     const { total, activeItems } = getStudentArrears(st, cutoffFilter);
     return {
       No: idx + 1,
       'Nama Santri': st.nama,
       'Kelas / Sheet': st.sheet,
       Unit: st.unit,
+      Semester: getSemesterLabel(detectSheetSemester(st.sheet)),
       'No WA Wali': st.wa || '-',
       'SPP Dasar': st.sppDasar,
       'Rincian Tunggakan': activeItems.map((i) => `${i.label}: ${i.amount}`).join('; ') || 'LUNAS',
@@ -1046,9 +1383,9 @@ function exportToExcel() {
     };
   });
   const wsAll = XLSX.utils.json_to_sheet(allRows);
-  XLSX.utils.book_append_sheet(wb, wsAll, 'Rekap Semua Santri');
+  XLSX.utils.book_append_sheet(wb, wsAll, 'Rincian Data Santri');
 
-  // Sheet 2: Riwayat Pembayaran
+  // Sheet 3: Riwayat Pembayaran
   if (transactions.length > 0) {
     const txRows = transactions.map((t) => ({
       'No Kwitansi': t.noKwitansi,
@@ -1123,6 +1460,9 @@ function switchTab(tabName) {
       btn.className = 'tab-btn bg-white text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 transition';
     }
   });
+
+  // Sembunyikan filter bar utama hanya saat di tab Riwayat
+  document.getElementById('global-filter-bar').classList.toggle('hidden', tabName === 'riwayat');
 }
 
 function openModal(id) {
