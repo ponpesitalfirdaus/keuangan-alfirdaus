@@ -4,1209 +4,2738 @@
 // BENDAHARA: RESTASARI, S.Sos
 // ============================================================================
 
-window.__APP_JS_READY = true;
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
 import {
-    getAuth,
-    onAuthStateChanged,
-    signInWithEmailAndPassword,
-    signOut
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  sendPasswordResetEmail,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-auth.js";
 import {
-    getFirestore,
-    initializeFirestore,
-    persistentLocalCache,
-    persistentMultipleTabManager,
-    collection,
-    doc,
-    setDoc,
-    updateDoc,
-    deleteDoc,
-    onSnapshot,
-    writeBatch,
-    getDocs
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  collection,
+  doc,
+  onSnapshot,
+  writeBatch,
+  addDoc,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-firestore.js";
 
-// ==================== 1. FIREBASE CONFIGURATION ====================
+// Konfigurasi Proyek Firebase: keuangan-alfirdaus
 const firebaseConfig = {
-    apiKey: "AIzaSyC4sTKd_Pp3W4ncXolZud5GhjK5O-GCgvE",
-    authDomain: "keuangan-alfirdaus.firebaseapp.com",
-    projectId: "keuangan-alfirdaus",
-    storageBucket: "keuangan-alfirdaus.firebasestorage.app",
-    messagingSenderId: "797090689943",
-    appId: "1:797090689943:web:17852a2c6fc9960f5bcad2"
+  apiKey: "AIzaSyC4sTKd_Pp3W4ncXolZud5GhjK5O-GCgvE",
+  authDomain: "keuangan-alfirdaus.firebaseapp.com",
+  projectId: "keuangan-alfirdaus",
+  storageBucket: "keuangan-alfirdaus.firebasestorage.app",
+  messagingSenderId: "797090689943",
+  appId: "1:797090689943:web:17852a2c6fc9960f5bcad2"
 };
 
+// Inisialisasi Firebase, Auth, dan Firestore dengan Cache Offline Multi-Tab
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
 
-// Initialize Firestore with multi-tab offline persistence + safe fallback
-let db;
-try {
-    db = initializeFirestore(app, {
-        localCache: persistentLocalCache({
-            tabManager: persistentMultipleTabManager()
-        })
-    });
-} catch (err) {
-    console.warn("Persistent cache fallback:", err);
-    db = getFirestore(app);
-}
+// Kunci penyimpanan lokal lama (untuk fitur migrasi 1-klik ke Cloud)
+const LEGACY_STORAGE_STUDENTS = 'alfirdaus_students_v1';
+const LEGACY_STORAGE_TX = 'alfirdaus_transactions_v1';
 
-// ==================== 2. APPLICATION STATE & CONSTANTS ====================
-const BULAN_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-const BULAN_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-
-const KATEGORI_MASUK = [
-    'Pembayaran Syahriah',
-    'Uang Pangkal / Pendaftaran',
-    'Donasi / Infaq / Wakaf',
-    'Bantuan Operasional (BOS)',
-    'Unit Usaha Pesantren',
-    'Pemasukan Lain-lain'
+// Link resmi logo Google Drive Ponpes SIT Al Firdaus Bandarlampung
+const DRIVE_FILE_ID = '1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_';
+const LOGO_URLS = [
+  `https://lh3.googleusercontent.com/d/${DRIVE_FILE_ID}`,
+  `https://drive.google.com/thumbnail?id=${DRIVE_FILE_ID}&sz=w500`,
+  `https://drive.google.com/uc?export=view&id=${DRIVE_FILE_ID}`
 ];
 
-const KATEGORI_KELUAR = [
-    'Konsumsi & Dapur Santri',
-    'Gaji & Kafalah Ustadz/Karyawan',
-    'Listrik, Air & Internet',
-    'Sarana Prasarana & Maintenance',
-    'Kesehatan Santri',
-    'Kegiatan Belajar & Ekstrakurikuler',
-    'Pengeluaran Lain-lain'
+const MONTH_ORDER = [
+  'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
+  'januari', 'februari', 'maret', 'april', 'mei', 'juni'
 ];
 
-let currentUser = null;
-let currentUserRole = 'bendahara';
-let unsubSantri = null;
-let unsubKas = null;
-let unsubSyahriah = null;
+let students = [];
+let transactions = [];
+let unsubStudents = null;
+let unsubTransactions = null;
+let uiListenersAttached = false;
 
-let appData = {
-    santri: [],
-    kas: [],
-    syahriah: {} // key: "santriId_tahun_bulanIndex", value: { paid: true, date, amount, kasId, recordedBy }
-};
+// Data contoh awal (opsional jika database masih kosong)
+const INITIAL_SAMPLE_DATA = [
+  {
+    id: 'st-1',
+    sheet: '7 smt 1',
+    unit: 'SMPIT Al Firdaus',
+    tahunAjaran: '2026-2027',
+    nama: 'Alya Mukbita',
+    wa: '',
+    sppDasar: 850000,
+    fees: [
+      { label: 'U. Pangkal', amount: 1950000, type: 'fixed', monthKey: null },
+      { label: 'Juli', amount: 0, type: 'monthly', monthKey: 'juli' },
+      { label: 'Agustus', amount: 0, type: 'monthly', monthKey: 'agustus' },
+      { label: 'September', amount: 0, type: 'monthly', monthKey: 'september' },
+      { label: 'Oktober', amount: 850000, type: 'monthly', monthKey: 'oktober' },
+      { label: 'November', amount: 850000, type: 'monthly', monthKey: 'november' },
+      { label: 'Desember', amount: 850000, type: 'monthly', monthKey: 'desember' }
+    ]
+  },
+  {
+    id: 'st-1b',
+    sheet: '7 smt 2',
+    unit: 'SMPIT Al Firdaus',
+    tahunAjaran: '2026-2027',
+    nama: 'Alya Mukbita',
+    wa: '',
+    sppDasar: 850000,
+    fees: [
+      { label: 'smt 1 + U. Pangkal', amount: 2800000, type: 'fixed', monthKey: null },
+      { label: 'Januari', amount: 850000, type: 'monthly', monthKey: 'januari' },
+      { label: 'Februari', amount: 850000, type: 'monthly', monthKey: 'februari' },
+      { label: 'Maret', amount: 850000, type: 'monthly', monthKey: 'maret' },
+      { label: 'April', amount: 850000, type: 'monthly', monthKey: 'april' },
+      { label: 'Mei', amount: 850000, type: 'monthly', monthKey: 'mei' },
+      { label: 'Juni', amount: 850000, type: 'monthly', monthKey: 'juni' }
+    ]
+  },
+  {
+    id: 'st-2',
+    sheet: '7 smt 1',
+    unit: 'SMPIT Al Firdaus',
+    tahunAjaran: '2026-2027',
+    nama: 'Alya Sahira',
+    wa: '',
+    sppDasar: 850000,
+    fees: [
+      { label: 'U. Pangkal', amount: 2750000, type: 'fixed', monthKey: null },
+      { label: 'Juli', amount: 0, type: 'monthly', monthKey: 'juli' },
+      { label: 'Agustus', amount: 0, type: 'monthly', monthKey: 'agustus' },
+      { label: 'September', amount: 0, type: 'monthly', monthKey: 'september' },
+      { label: 'Oktober', amount: 885000, type: 'monthly', monthKey: 'oktober' },
+      { label: 'November', amount: 850000, type: 'monthly', monthKey: 'november' },
+      { label: 'Desember', amount: 850000, type: 'monthly', monthKey: 'desember' }
+    ]
+  },
+  {
+    id: 'st-3',
+    sheet: 'KELAS 10',
+    unit: 'SMAIT Al Firdaus',
+    tahunAjaran: '2026-2027',
+    nama: 'Habiburrahman Pasha',
+    wa: '',
+    sppDasar: 680000,
+    fees: [
+      { label: 'U. Pangkal', amount: 3500000, type: 'fixed', monthKey: null },
+      { label: 'Juli', amount: 680000, type: 'monthly', monthKey: 'juli' },
+      { label: 'Agustus', amount: 750000, type: 'monthly', monthKey: 'agustus' },
+      { label: 'September', amount: 750000, type: 'monthly', monthKey: 'september' },
+      { label: 'Oktober', amount: 750000, type: 'monthly', monthKey: 'oktober' },
+      { label: 'November', amount: 750000, type: 'monthly', monthKey: 'november' },
+      { label: 'Desember', amount: 750000, type: 'monthly', monthKey: 'desember' }
+    ]
+  }
+];
 
-// ==================== 3. HELPER UTILITIES ====================
-function formatRupiah(angka) {
-    return 'Rp ' + Number(angka || 0).toLocaleString('id-ID');
+// ============================================================================
+// LOGO FALLBACK
+// ============================================================================
+function handleLogoFallback(imgEl) {
+  const attempt = Number(imgEl.getAttribute('data-attempt') || '0') + 1;
+  if (attempt < LOGO_URLS.length) {
+    imgEl.setAttribute('data-attempt', String(attempt));
+    imgEl.src = LOGO_URLS[attempt];
+  }
 }
 
-function generateId(prefix = 'ID') {
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-}
-
-function getTodayDate() {
-    const d = new Date();
-    const offset = d.getTimezoneOffset();
-    const local = new Date(d.getTime() - (offset * 60 * 1000));
-    return local.toISOString().split('T')[0];
-}
-
-function isAdminRole() {
-    return currentUserRole === 'admin' || currentUserRole === 'bendahara';
-}
-
-function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
-function setSyncBadge(state, label) {
-    const badge = document.getElementById('sync-status-badge');
-    if (!badge) return;
-    if (state === 'online') {
-        badge.className = 'inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30';
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span class="hidden sm:inline">${label || 'Cloud Live'}</span>`;
-    } else if (state === 'syncing') {
-        badge.className = 'inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/30';
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span><span class="hidden sm:inline">${label || 'Menyimpan...'}</span>`;
-    } else {
-        badge.className = 'inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-200 border border-rose-400/30';
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span><span class="hidden sm:inline">${label || 'Offline / Error'}</span>`;
-    }
-}
-
-// ==================== 4. AUTHENTICATION & SESSION ====================
-function showScreen(screenName) {
-    const loadingEl = document.getElementById('auth-loading-screen');
-    const loginEl = document.getElementById('login-screen');
-    const appEl = document.getElementById('app-container');
-
-    loadingEl.classList.add('hidden');
-    loadingEl.classList.remove('flex');
-    loginEl.classList.add('hidden');
-    loginEl.classList.remove('flex');
-    appEl.classList.add('hidden');
-    appEl.classList.remove('flex');
-
-    if (screenName === 'loading') {
-        loadingEl.classList.remove('hidden');
-        loadingEl.classList.add('flex');
-    } else if (screenName === 'login') {
-        loginEl.classList.remove('hidden');
-        loginEl.classList.add('flex');
-    } else if (screenName === 'app') {
-        appEl.classList.remove('hidden');
-        appEl.classList.add('flex');
-    }
-}
-
-function applyRoleUI() {
-    if (!currentUser) return;
-    const email = currentUser.email || 'user@alfirdaus.sch.id';
-    const displayName = currentUser.displayName || email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-
-    if (email.toLowerCase().includes('pimpinan') || email.toLowerCase().includes('mudir') || email.toLowerCase().includes('yayasan')) {
-        currentUserRole = 'pimpinan';
-    } else if (email.toLowerCase().includes('admin')) {
-        currentUserRole = 'admin';
-    } else {
-        currentUserRole = 'bendahara';
-    }
-
-    const roleLabelMap = {
-        admin: 'Administrator',
-        bendahara: 'Bendahara Pesantren',
-        pimpinan: 'Pimpinan / Mudir (View Only)'
-    };
-
-    document.getElementById('header-user-name').textContent = displayName;
-    document.getElementById('header-user-role').textContent = roleLabelMap[currentUserRole] || 'Bendahara';
-
-    const adminEls = document.querySelectorAll('.role-admin-only');
-    adminEls.forEach(el => {
-        if (isAdminRole()) {
-            el.classList.remove('hidden');
-        } else {
-            el.classList.add('hidden');
-        }
-    });
-
-    const backupGroup = document.getElementById('backup-restore-group');
-    if (backupGroup) {
-        if (currentUserRole === 'admin' || currentUserRole === 'bendahara') {
-            backupGroup.classList.remove('hidden');
-        } else {
-            backupGroup.classList.add('hidden');
-        }
-    }
-}
-
-function translateFirebaseAuthError(code, rawMessage) {
-    switch (code) {
-        case 'auth/invalid-credential':
-        case 'auth/wrong-password':
-        case 'auth/user-not-found':
-            return 'Email atau password salah. Pastikan akun sudah dibuat di Firebase Authentication.';
-        case 'auth/invalid-email':
-            return 'Format alamat email tidak valid.';
-        case 'auth/too-many-requests':
-            return 'Terlalu banyak percobaan login gagal. Silakan tunggu beberapa menit.';
-        case 'auth/network-request-failed':
-            return 'Gagal terhubung ke server Firebase. Periksa koneksi internet Anda.';
-        case 'auth/user-disabled':
-            return 'Akun ini telah dinonaktifkan oleh administrator.';
-        case 'auth/unauthorized-domain':
-            return 'Domain GitHub Pages belum diizinkan! Buka Firebase Console -> Authentication -> Settings -> Authorized domains -> tambahkan ponpesitalfirdaus.github.io';
-        default:
-            return `Gagal login (${code || 'error'}): ${rawMessage || 'Silakan coba lagi.'}`;
-    }
-}
-
-onAuthStateChanged(auth, async (user) => {
-    if (user) {
-        currentUser = user;
-        applyRoleUI();
-        showScreen('app');
-        await startRealtimeListeners();
-    } else {
-        currentUser = null;
-        stopRealtimeListeners();
-        showScreen('login');
-    }
-}, (error) => {
-    console.error("Auth state error:", error);
-    showScreen('login');
-    const errorBox = document.getElementById('login-error');
-    const errorText = document.getElementById('login-error-text');
-    if (errorBox && errorText) {
-        errorText.textContent = translateFirebaseAuthError(error.code, error.message);
-        errorBox.classList.remove('hidden');
-    }
-});
-
-// Login Form Handler
-document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-password').value;
-    const errorBox = document.getElementById('login-error');
-    const errorText = document.getElementById('login-error-text');
-    const submitBtn = document.getElementById('login-submit-btn');
-
-    errorBox.classList.add('hidden');
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Memverifikasi ke Firebase...</span>`;
-
-    try {
-        await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-        console.error('Login error:', error);
-        errorText.textContent = translateFirebaseAuthError(error.code, error.message);
-        errorBox.classList.remove('hidden');
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = `<i class="fa-solid fa-right-to-bracket"></i><span>Masuk ke Sistem Cloud</span>`;
-    }
-});
-
-// Toggle Password Visibility
-document.getElementById('toggle-pass-btn').addEventListener('click', () => {
-    const passInput = document.getElementById('login-password');
-    const icon = document.getElementById('toggle-pass-icon');
-    if (passInput.type === 'password') {
-        passInput.type = 'text';
-        icon.classList.replace('fa-eye', 'fa-eye-slash');
-    } else {
-        passInput.type = 'password';
-        icon.classList.replace('fa-eye-slash', 'fa-eye');
-    }
-});
-
-// Logout Handler
-document.getElementById('btn-logout').addEventListener('click', async () => {
-    if (confirm('Yakin ingin keluar dari sistem keuangan?')) {
-        try {
-            await signOut(auth);
-        } catch (err) {
-            alert('Gagal logout: ' + err.message);
-        }
-    }
-});
-
-// ==================== 5. REAL-TIME FIRESTORE LISTENERS ====================
-function stopRealtimeListeners() {
-    if (unsubSantri) { unsubSantri(); unsubSantri = null; }
-    if (unsubKas) { unsubKas(); unsubKas = null; }
-    if (unsubSyahriah) { unsubSyahriah(); unsubSyahriah = null; }
-}
-
-async function seedInitialDataIfEmpty() {
-    try {
-        const santriSnap = await getDocs(collection(db, 'santri'));
-        const kasSnap = await getDocs(collection(db, 'kas'));
-        if (!santriSnap.empty || !kasSnap.empty) return;
-
-        const batch = writeBatch(db);
-
-        const initialSantri = [
-            { id: 'S001', nis: 'AF-2026-001', nama: 'Ahmad Fauzan Al-Ghifari', kelas: 'SMA IT', tarif: 750000, wali: 'Bpk. Hendra Wijaya', hp: '081234567890', status: 'AKTIF' },
-            { id: 'S002', nis: 'AF-2026-002', nama: 'Muhammad Zaki Mubarak', kelas: 'SMP IT', tarif: 650000, wali: 'Bpk. Ridwan Kamil', hp: '081298765432', status: 'AKTIF' },
-            { id: 'S003', nis: 'AF-2026-003', nama: 'Aisyah Putri Ramadhani', kelas: 'Takhassus IT', tarif: 800000, wali: 'Ibu Siti Aminah', hp: '085611223344', status: 'AKTIF' },
-            { id: 'S004', nis: 'AF-2026-004', nama: 'Bilal Bin Rabah', kelas: 'SMP IT', tarif: 650000, wali: 'Bpk. Umar Faruq', hp: '087855667788', status: 'AKTIF' }
-        ];
-
-        initialSantri.forEach(s => {
-            batch.set(doc(db, 'santri', s.id), s);
+// ============================================================================
+// HELPER OPERASI CLOUD FIRESTORE (BATCH ATOMIK + LOG JEJAK AUDIT)
+// ============================================================================
+async function commitFirestoreOps(operations) {
+  // Firestore membatasi maksimal 500 operasi per batch; kita bagi per 400 agar aman
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+    const chunk = operations.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((op) => {
+      const ref = doc(db, op.collection, op.id);
+      if (op.type === 'delete') {
+        batch.delete(ref);
+      } else {
+        batch.set(ref, {
+          ...op.data,
+          updatedAt: serverTimestamp()
         });
-
-        const initialKas = [
-            { id: 'K001', tanggal: '2026-01-05', jenis: 'MASUK', kategori: 'Donasi / Infaq / Wakaf', nominal: 15000000, keterangan: 'Saldo Awal & Donasi Yayasan Al Firdaus' },
-            { id: 'K002', tanggal: '2026-01-10', jenis: 'MASUK', kategori: 'Pembayaran Syahriah', nominal: 750000, keterangan: 'Syahriah Januari 2026 - Ahmad Fauzan Al-Ghifari' },
-            { id: 'K003', tanggal: '2026-01-12', jenis: 'MASUK', kategori: 'Pembayaran Syahriah', nominal: 650000, keterangan: 'Syahriah Januari 2026 - Muhammad Zaki Mubarak' },
-            { id: 'K004', tanggal: '2026-01-15', jenis: 'KELUAR', kategori: 'Konsumsi & Dapur Santri', nominal: 3200000, keterangan: 'Belanja logistik beras & lauk dapur pesantren' },
-            { id: 'K005', tanggal: '2026-01-20', jenis: 'KELUAR', kategori: 'Listrik, Air & Internet', nominal: 1450000, keterangan: 'Tagihan Listrik Asrama & Fiber Optic Lab IT' }
-        ];
-
-        initialKas.forEach(k => {
-            batch.set(doc(db, 'kas', k.id), k);
-        });
-
-        batch.set(doc(db, 'syahriah', 'S001_2026_0'), { paid: true, date: '2026-01-10', amount: 750000, kasId: 'K002' });
-        batch.set(doc(db, 'syahriah', 'S002_2026_0'), { paid: true, date: '2026-01-12', amount: 650000, kasId: 'K003' });
-
-        await batch.commit();
-        console.log('Data contoh awal berhasil disiapkan di Firestore.');
-    } catch (err) {
-        console.warn('Seed check dilewati:', err.message);
-    }
+      }
+    });
+    await batch.commit();
+  }
 }
 
-async function startRealtimeListeners() {
-    stopRealtimeListeners();
-    setSyncBadge('syncing', 'Memuat Data...');
-
-    await seedInitialDataIfEmpty();
-
-    // 1. Santri Listener
-    unsubSantri = onSnapshot(collection(db, 'santri'), (snapshot) => {
-        appData.santri = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        appData.santri.sort((a, b) => (a.nis || '').localeCompare(b.nis || ''));
-        setSyncBadge('online', 'Cloud Live');
-        refreshAllViews();
-    }, (error) => {
-        console.error('Firestore santri error:', error);
-        setSyncBadge('error', 'Error Akses');
-        if (error.code === 'permission-denied') {
-            alert('Akses ditolak oleh Firestore Rules! Pastikan akun Anda sudah login dan Rules Firestore sudah dipublish.');
-        }
+async function logAuditAction(action, summary) {
+  try {
+    const userEmail = auth.currentUser ? auth.currentUser.email : 'unknown';
+    await addDoc(collection(db, 'audit_logs'), {
+      action,
+      summary,
+      actorEmail: userEmail,
+      actorName: 'Restasari, S.Sos',
+      createdAt: serverTimestamp()
     });
-
-    // 2. Kas Listener
-    unsubKas = onSnapshot(collection(db, 'kas'), (snapshot) => {
-        appData.kas = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        setSyncBadge('online', 'Cloud Live');
-        refreshAllViews();
-    }, (error) => {
-        console.error('Firestore kas error:', error);
-        setSyncBadge('error', 'Error Akses');
-    });
-
-    // 3. Syahriah Listener
-    unsubSyahriah = onSnapshot(collection(db, 'syahriah'), (snapshot) => {
-        const map = {};
-        snapshot.docs.forEach(d => {
-            map[d.id] = d.data();
-        });
-        appData.syahriah = map;
-        setSyncBadge('online', 'Cloud Live');
-        refreshAllViews();
-    }, (error) => {
-        console.error('Firestore syahriah error:', error);
-        setSyncBadge('error', 'Error Akses');
-    });
+  } catch (err) {
+    console.warn('Audit log dilewati:', err);
+  }
 }
 
-function refreshAllViews() {
-    renderDashboard();
-    renderSantriTable();
-    renderSyahriahMatrix();
-    renderKasTable();
-    renderLaporan();
+function updateCloudSyncBadge(isFromCache) {
+  const badge = document.getElementById('cloud-sync-badge');
+  if (!badge) return;
+  if (isFromCache || !navigator.onLine) {
+    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/40';
+    badge.innerHTML = '<i class="fa-solid fa-wifi text-amber-300"></i><span>Mode Offline • Tersimpan Lokal</span>';
+  } else {
+    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-400/20 text-sky-200 border border-sky-300/30';
+    badge.innerHTML = '<i class="fa-solid fa-cloud-check text-sky-300"></i><span>Cloud Terhubung • Real-Time</span>';
+  }
 }
 
-// ==================== 6. TAB NAVIGATION ====================
-function switchTab(tabName) {
-    document.querySelectorAll('.tab-content').forEach(sec => sec.classList.add('hidden'));
-    const targetSec = document.getElementById(`tab-${tabName}`);
-    if (targetSec) targetSec.classList.remove('hidden');
+function checkEmptyCloudBanner() {
+  const banner = document.getElementById('cloud-empty-banner');
+  const btnMigrate = document.getElementById('btn-migrate-local');
+  const btnMigrateText = document.getElementById('btn-migrate-local-text');
+  const descEl = document.getElementById('cloud-empty-desc');
 
-    document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
-    const activeBtn = document.querySelector(`.nav-tab[data-tab="${tabName}"]`);
-    if (activeBtn) activeBtn.classList.add('active');
+  if (!banner) return;
 
-    refreshAllViews();
+  if (students.length > 0) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  banner.classList.remove('hidden');
+
+  // Cek apakah ada data lama tersimpan di localStorage browser ini
+  let legacyStudents = [];
+  let legacyTx = [];
+  try {
+    legacyStudents = JSON.parse(localStorage.getItem(LEGACY_STORAGE_STUDENTS) || '[]');
+    legacyTx = JSON.parse(localStorage.getItem(LEGACY_STORAGE_TX) || '[]');
+  } catch (e) {
+    legacyStudents = [];
+  }
+
+  if (Array.isArray(legacyStudents) && legacyStudents.length > 0) {
+    btnMigrate.classList.remove('hidden');
+    btnMigrateText.textContent = `Migrasi ${legacyStudents.length} Data Santri Lama ke Cloud`;
+    descEl.innerHTML = `Ditemukan <b>${legacyStudents.length} data santri</b> dan <b>${legacyTx.length} riwayat transaksi</b> dari penyimpanan lokal browser Anda. Klik tombol biru muda di samping untuk memindahkan semuanya ke Cloud Firestore.`;
+  } else {
+    btnMigrate.classList.add('hidden');
+    descEl.textContent = 'Silakan klik tombol "Import Excel (.xlsx)" di pojok kanan atas untuk mengunggah file rekap tagihan Anda, atau isi data contoh awal.';
+  }
 }
 
-document.querySelectorAll('.nav-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-        switchTab(btn.dataset.tab);
+async function migrateLocalToFirestore() {
+  let legacyStudents = [];
+  let legacyTx = [];
+  try {
+    legacyStudents = JSON.parse(localStorage.getItem(LEGACY_STORAGE_STUDENTS) || '[]');
+    legacyTx = JSON.parse(localStorage.getItem(LEGACY_STORAGE_TX) || '[]');
+  } catch (e) {
+    alert('Data lokal tidak terbaca.');
+    return;
+  }
+
+  if (legacyStudents.length === 0) {
+    alert('Tidak ada data lokal lama yang ditemukan di browser ini.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-migrate-local');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Memindahkan ke Cloud...</span>';
+
+  try {
+    const ops = [];
+    legacyStudents.forEach((st) => {
+      ops.push({ collection: 'students', id: st.id, data: st });
     });
+    legacyTx.forEach((tx) => {
+      ops.push({ collection: 'transactions', id: tx.id, data: tx });
+    });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('MIGRATE_LOCAL', `Migrasi ${legacyStudents.length} santri & ${legacyTx.length} transaksi ke Cloud`);
+    alert(`Berhasil memindahkan ${legacyStudents.length} data santri dan ${legacyTx.length} transaksi ke Cloud Firestore!`);
+  } catch (err) {
+    console.error(err);
+    alert('Gagal memigrasi data ke Cloud: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function seedInitialSampleToFirestore() {
+  if (!confirm('Isi database Cloud dengan 4 data contoh awal (untuk uji coba)?')) return;
+  try {
+    const ops = INITIAL_SAMPLE_DATA.map((st) => ({
+      collection: 'students',
+      id: st.id,
+      data: st
+    }));
+    await commitFirestoreOps(ops);
+    await logAuditAction('SEED_SAMPLE', 'Mengisi 4 data contoh awal ke Cloud');
+  } catch (err) {
+    alert('Gagal mengisi data contoh: ' + err.message);
+  }
+}
+
+// ============================================================================
+// FIREBASE AUTHENTICATION & SINKRONISASI REAL-TIME FIRESTORE
+// ============================================================================
+onAuthStateChanged(auth, (user) => {
+  const loadingScreen = document.getElementById('auth-loading-screen');
+  const loginScreen = document.getElementById('login-screen');
+  const appContainer = document.getElementById('app-container');
+
+  loadingScreen.classList.add('hidden');
+
+  if (user) {
+    loginScreen.classList.add('hidden');
+    appContainer.classList.remove('hidden');
+    document.getElementById('navbar-user-email').textContent = user.email || 'Bendahara Aktif';
+    attachUIEventListenersOnce();
+    startFirestoreListeners();
+  } else {
+    stopFirestoreListeners();
+    appContainer.classList.add('hidden');
+    loginScreen.classList.remove('hidden');
+    document.getElementById('login-password').value = '';
+  }
 });
 
-document.querySelectorAll('[data-nav-shortcut]').forEach(btn => {
-    btn.addEventListener('click', () => {
-        switchTab(btn.dataset.navShortcut);
-    });
-});
-
-// ==================== 7. DASHBOARD RENDERING ====================
-function renderDashboard() {
-    const selectedYear = document.getElementById('dash-year-filter').value;
-    document.querySelectorAll('.dash-year-label').forEach(el => el.textContent = selectedYear);
-
-    let totalMasukAll = 0;
-    let totalKeluarAll = 0;
-    let masukYear = 0;
-    let keluarYear = 0;
-
-    appData.kas.forEach(tx => {
-        const nom = Number(tx.nominal) || 0;
-        if (tx.jenis === 'MASUK') {
-            totalMasukAll += nom;
-            if (tx.tanggal && tx.tanggal.startsWith(selectedYear)) masukYear += nom;
-        } else {
-            totalKeluarAll += nom;
-            if (tx.tanggal && tx.tanggal.startsWith(selectedYear)) keluarYear += nom;
-        }
-    });
-
-    const saldoTotal = totalMasukAll - totalKeluarAll;
-    const santriAktif = appData.santri.filter(s => s.status === 'AKTIF');
-
-    document.getElementById('stat-saldo').textContent = formatRupiah(saldoTotal);
-    document.getElementById('stat-pemasukan').textContent = formatRupiah(masukYear);
-    document.getElementById('stat-pengeluaran').textContent = formatRupiah(keluarYear);
-    document.getElementById('stat-santri').textContent = `${santriAktif.length} Santri`;
-
-    const now = new Date();
-    const curMonthIdx = now.getMonth();
-    const curYear = now.getFullYear().toString();
-    document.getElementById('dash-bulan-name').textContent = `${BULAN_NAMES[curMonthIdx]} ${curYear}`;
-
-    let lunasCount = 0;
-    santriAktif.forEach(s => {
-        const key = `${s.id}_${curYear}_${curMonthIdx}`;
-        if (appData.syahriah[key] && appData.syahriah[key].paid) lunasCount++;
-    });
-
-    const persenLunas = santriAktif.length > 0 ? Math.round((lunasCount / santriAktif.length) * 100) : 0;
-    document.getElementById('stat-syahriah-bulan-ini').textContent = `Lunas bulan ini: ${persenLunas}% (${lunasCount}/${santriAktif.length})`;
-
-    document.getElementById('dash-syahriah-progress').innerHTML = `
-        <div>
-            <div class="flex justify-between text-xs font-semibold mb-1">
-                <span class="text-slate-600">Sudah Lunas</span>
-                <span class="text-emerald-600">${lunasCount} Santri (${persenLunas}%)</span>
-            </div>
-            <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style="width: ${persenLunas}%"></div>
-            </div>
-        </div>
-        <div class="pt-2 border-t border-slate-100 flex justify-between text-xs">
-            <span class="text-slate-500">Belum Bayar:</span>
-            <span class="font-bold text-rose-600">${santriAktif.length - lunasCount} Santri</span>
-        </div>
-    `;
-
-    const sortedKas = [...appData.kas].sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || '') || (b.id || '').localeCompare(a.id || '')).slice(0, 6);
-    const recentTbody = document.getElementById('dash-recent-tx');
-    if (sortedKas.length === 0) {
-        recentTbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-slate-400 text-xs">Belum ada data transaksi kas.</td></tr>`;
-    } else {
-        recentTbody.innerHTML = sortedKas.map(tx => `
-            <tr class="hover:bg-slate-50">
-                <td class="py-2.5 px-4 text-xs text-slate-500 whitespace-nowrap">${escapeHtml(tx.tanggal)}</td>
-                <td class="py-2.5 px-4 font-medium text-slate-800">${escapeHtml(tx.keterangan)}</td>
-                <td class="py-2.5 px-4 text-xs"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600">${escapeHtml(tx.kategori)}</span></td>
-                <td class="py-2.5 px-4 text-right font-bold whitespace-nowrap ${tx.jenis === 'MASUK' ? 'text-emerald-600' : 'text-rose-600'}">
-                    ${tx.jenis === 'MASUK' ? '+' : '-'} ${formatRupiah(tx.nominal)}
-                </td>
-            </tr>
-        `).join('');
-    }
+function attachUIEventListenersOnce() {
+  if (uiListenersAttached) return;
+  document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
+  document.getElementById('json-restore').addEventListener('change', handleJSONRestore);
+  document.getElementById('newclass-source').addEventListener('change', (e) => {
+    const optBox = document.getElementById('newclass-migration-options');
+    optBox.classList.toggle('hidden', !e.target.value);
+  });
+  window.addEventListener('online', () => updateCloudSyncBadge(false));
+  window.addEventListener('offline', () => updateCloudSyncBadge(true));
+  uiListenersAttached = true;
 }
 
-document.getElementById('dash-year-filter').addEventListener('change', renderDashboard);
+function startFirestoreListeners() {
+  stopFirestoreListeners();
 
-// ==================== 8. MASTER SANTRI CRUD (FIRESTORE) ====================
-function renderSantriTable() {
-    const keyword = document.getElementById('santri-search').value.toLowerCase();
-    const filterKelas = document.getElementById('santri-filter-kelas').value;
-    const canEdit = isAdminRole();
+  // Listener Real-Time Koleksi Santri
+  unsubStudents = onSnapshot(
+    collection(db, 'students'),
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      updateCloudSyncBadge(snapshot.metadata.fromCache);
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      // Urutkan berdasarkan kelas lalu nama santri
+      list.sort((a, b) => {
+        const rankDiff = getSheetChronologicalRank(a.sheet) - getSheetChronologicalRank(b.sheet);
+        if (rankDiff !== 0) return rankDiff;
+        return String(a.nama || '').localeCompare(String(b.nama || ''), 'id');
+      });
 
-    const filtered = appData.santri.filter(s => {
-        const matchKey = (s.nama || '').toLowerCase().includes(keyword) ||
-                         (s.nis || '').toLowerCase().includes(keyword) ||
-                         (s.wali || '').toLowerCase().includes(keyword);
-        const matchKelas = filterKelas === 'ALL' || s.kelas === filterKelas;
-        return matchKey && matchKelas;
-    });
+      students = list;
+      checkEmptyCloudBanner();
+      populateSheetFilter();
+      renderTable();
 
-    const tbody = document.getElementById('santri-table-body');
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">Tidak ada data santri ditemukan.</td></tr>`;
-        return;
+      // Jika modal Kartu Induk sedang terbuka, perbarui otomatis
+      const indukModal = document.getElementById('modal-induk');
+      if (indukModal && !indukModal.classList.contains('hidden')) {
+        refreshIndukDetailModal();
+      }
+    },
+    (error) => {
+      console.error('Firestore students listener error:', error);
+      alert('Gagal memuat data dari Cloud Firestore: ' + error.message);
     }
+  );
 
-    tbody.innerHTML = filtered.map(s => {
-        const statusBadge = s.status === 'AKTIF'
-            ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Aktif</span>`
-            : `<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-600">${escapeHtml(s.status)}</span>`;
-
-        const actionCell = canEdit ? `
-            <td class="py-3 px-4 text-center whitespace-nowrap">
-                <button data-action="edit-santri" data-id="${escapeHtml(s.id)}" class="text-teal-600 hover:text-teal-800 p-1.5" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
-                <button data-action="delete-santri" data-id="${escapeHtml(s.id)}" class="text-rose-500 hover:text-rose-700 p-1.5" title="Hapus"><i class="fa-solid fa-trash"></i></button>
-            </td>` : '';
-
-        return `
-            <tr class="hover:bg-slate-50">
-                <td class="py-3 px-4 font-mono text-xs text-slate-600 font-semibold">${escapeHtml(s.nis)}</td>
-                <td class="py-3 px-4 font-bold text-slate-800">${escapeHtml(s.nama)}</td>
-                <td class="py-3 px-4"><span class="px-2 py-1 rounded-md bg-teal-50 text-teal-700 text-xs font-semibold">${escapeHtml(s.kelas)}</span></td>
-                <td class="py-3 px-4 text-xs">
-                    <div class="font-semibold text-slate-700">${escapeHtml(s.wali)}</div>
-                    <div class="text-slate-400">${escapeHtml(s.hp || '-')}</div>
-                </td>
-                <td class="py-3 px-4 text-right font-bold text-slate-700">${formatRupiah(s.tarif)}</td>
-                <td class="py-3 px-4 text-center">${statusBadge}</td>
-                ${actionCell}
-            </tr>
-        `;
-    }).join('');
+  // Listener Real-Time Koleksi Transaksi Pembayaran
+  unsubTransactions = onSnapshot(
+    collection(db, 'transactions'),
+    (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      // Urutkan dari transaksi terbaru ke terlama
+      list.sort((a, b) => String(b.noKwitansi || '').localeCompare(String(a.noKwitansi || '')));
+      transactions = list;
+      renderRiwayat();
+    },
+    (error) => {
+      console.error('Firestore transactions listener error:', error);
+    }
+  );
 }
 
-document.getElementById('santri-search').addEventListener('input', renderSantriTable);
-document.getElementById('santri-filter-kelas').addEventListener('change', renderSantriTable);
-
-function openSantriModal(editId = null) {
-    if (!isAdminRole()) return;
-    const modal = document.getElementById('modal-santri');
-    const title = document.getElementById('modal-santri-title');
-    document.getElementById('form-santri').reset();
-
-    if (editId) {
-        const s = appData.santri.find(item => item.id === editId);
-        if (!s) return;
-        title.textContent = 'Edit Data Santri';
-        document.getElementById('santri-id').value = s.id;
-        document.getElementById('santri-nis').value = s.nis;
-        document.getElementById('santri-nama').value = s.nama;
-        document.getElementById('santri-kelas').value = s.kelas;
-        document.getElementById('santri-tarif').value = s.tarif;
-        document.getElementById('santri-wali').value = s.wali;
-        document.getElementById('santri-hp').value = s.hp || '';
-        document.getElementById('santri-status').value = s.status;
-    } else {
-        title.textContent = 'Tambah Data Santri Baru';
-        document.getElementById('santri-id').value = '';
-    }
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+function stopFirestoreListeners() {
+  if (unsubStudents) {
+    unsubStudents();
+    unsubStudents = null;
+  }
+  if (unsubTransactions) {
+    unsubTransactions();
+    unsubTransactions = null;
+  }
+  students = [];
+  transactions = [];
 }
 
-function closeSantriModal() {
-    const modal = document.getElementById('modal-santri');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+function translateFirebaseAuthError(code) {
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Email atau Password salah. Periksa kembali akun Bendahara Anda.';
+    case 'auth/invalid-email':
+      return 'Format alamat email tidak valid.';
+    case 'auth/too-many-requests':
+      return 'Terlalu banyak percobaan gagal. Silakan tunggu beberapa menit lalu coba lagi.';
+    case 'auth/network-request-failed':
+      return 'Koneksi internet bermasalah. Pastikan perangkat terhubung ke internet untuk login pertama kali.';
+    default:
+      return 'Gagal masuk (' + code + ').';
+  }
 }
 
-document.getElementById('btn-open-santri-modal').addEventListener('click', () => openSantriModal());
-document.getElementById('btn-close-santri-modal').addEventListener('click', closeSantriModal);
-document.getElementById('btn-cancel-santri-modal').addEventListener('click', closeSantriModal);
+async function handleLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const remember = document.getElementById('login-remember').checked;
 
-document.getElementById('santri-table-body').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const id = btn.dataset.id;
+  const errBox = document.getElementById('login-error');
+  const errText = document.getElementById('login-error-text');
+  const infoBox = document.getElementById('login-info');
+  const btn = document.getElementById('btn-login-submit');
 
-    if (action === 'edit-santri') {
-        openSantriModal(id);
-    } else if (action === 'delete-santri') {
-        if (!isAdminRole()) return;
-        if (confirm('Hapus data santri ini secara permanen dari Cloud?')) {
-            try {
-                setSyncBadge('syncing', 'Menghapus...');
-                await deleteDoc(doc(db, 'santri', id));
-                setSyncBadge('online', 'Cloud Live');
-            } catch (err) {
-                alert('Gagal menghapus santri: ' + err.message);
-                setSyncBadge('error', 'Error');
-            }
-        }
+  errBox.classList.add('hidden');
+  infoBox.classList.add('hidden');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Memverifikasi Akun...</span>';
+
+  try {
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (err) {
+    errText.textContent = translateFirebaseAuthError(err.code);
+    errBox.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i><span>Masuk ke Sistem Keuangan</span>';
+  }
+}
+
+async function logoutBendahara() {
+  if (!confirm('Keluar dan kunci halaman keuangan sekarang?')) return;
+  try {
+    await signOut(auth);
+  } catch (err) {
+    alert('Gagal keluar: ' + err.message);
+  }
+}
+
+function togglePasswordVisibility(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  const icon = btn.querySelector('i');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.className = 'fa-solid fa-eye-slash';
+  } else {
+    inp.type = 'password';
+    icon.className = 'fa-solid fa-eye';
+  }
+}
+
+async function openResetPasswordPrompt() {
+  const currentInput = document.getElementById('login-email').value.trim();
+  const email = prompt('Masukkan alamat Email Bendahara untuk menerima tautan reset password:', currentInput);
+  if (!email) return;
+
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+    const infoBox = document.getElementById('login-info');
+    const infoText = document.getElementById('login-info-text');
+    infoText.textContent = `Tautan pengaturan ulang password telah dikirim ke ${email.trim()}. Silakan periksa kotak masuk / folder Spam.`;
+    infoBox.classList.remove('hidden');
+  } catch (err) {
+    alert('Gagal mengirim email reset password: ' + translateFirebaseAuthError(err.code));
+  }
+}
+
+function openAccountModal() {
+  const user = auth.currentUser;
+  document.getElementById('acc-email').value = user ? user.email : '';
+  document.getElementById('acc-old-password').value = '';
+  document.getElementById('acc-new-password').value = '';
+  document.getElementById('acc-confirm-password').value = '';
+  openModal('modal-account');
+}
+
+async function saveAccountCredentials(event) {
+  event.preventDefault();
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const oldPass = document.getElementById('acc-old-password').value;
+  const newPass = document.getElementById('acc-new-password').value;
+  const confirmPass = document.getElementById('acc-confirm-password').value;
+
+  if (newPass !== confirmPass) {
+    alert('Konfirmasi password baru tidak cocok.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-save-account');
+  btn.disabled = true;
+
+  try {
+    const credential = EmailAuthProvider.credential(user.email, oldPass);
+    await reauthenticateWithCredential(user, credential);
+    await updatePassword(user, newPass);
+    closeModal('modal-account');
+    alert('Password akun Bendahara berhasil diperbarui di Cloud!');
+  } catch (err) {
+    alert('Gagal memperbarui password: ' + translateFirebaseAuthError(err.code));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ============================================================================
+// HELPER FORMAT RUPIAH, TERBILANG, DETEKSI UNIT & SEMESTER
+// ============================================================================
+function formatRupiah(num) {
+  const n = Number(num) || 0;
+  return 'Rp ' + n.toLocaleString('id-ID');
+}
+
+function terbilang(angka) {
+  angka = Math.abs(Math.floor(Number(angka) || 0));
+  if (angka === 0) return 'Nol Rupiah';
+  const huruf = ['', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima', 'Enam', 'Tujuh', 'Delapan', 'Sembilan', 'Sepuluh', 'Sebelas'];
+  function baca(n) {
+    if (n < 12) return ' ' + huruf[n];
+    if (n < 20) return baca(n - 10) + ' Belas';
+    if (n < 100) return baca(Math.floor(n / 10)) + ' Puluh' + baca(n % 10);
+    if (n < 200) return ' Seratus' + baca(n - 100);
+    if (n < 1000) return baca(Math.floor(n / 100)) + ' Ratus' + baca(n % 100);
+    if (n < 2000) return ' Seribu' + baca(n - 1000);
+    if (n < 1000000) return baca(Math.floor(n / 1000)) + ' Ribu' + baca(n % 1000);
+    if (n < 1000000000) return baca(Math.floor(n / 1000000)) + ' Juta' + baca(n % 1000000);
+    return baca(Math.floor(n / 1000000000)) + ' Miliar' + baca(n % 1000000000);
+  }
+  return baca(angka).trim() + ' Rupiah';
+}
+
+function normalizeStudentName(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function detectMonthKey(headerText) {
+  const lower = String(headerText || '').toLowerCase().trim();
+  for (const m of MONTH_ORDER) {
+    if (lower === m || lower.startsWith(m + ' ')) {
+      return m;
     }
-});
+  }
+  return null;
+}
 
-document.getElementById('form-santri').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!isAdminRole()) return;
+function inferUnitFromSheet(sheetName) {
+  const s = String(sheetName || '').toLowerCase();
+  const isAlumni = s.startsWith('a.') || s.includes('alumni');
+  if (s.includes('7') || s.includes('8') || s.includes('9') || s.includes('smp')) {
+    return isAlumni ? 'Alumni SMPIT Al Firdaus' : 'SMPIT Al Firdaus';
+  }
+  if (s.includes('10') || s.includes('11') || s.includes('12') || s.includes('sma')) {
+    return isAlumni ? 'Alumni SMAIT Al Firdaus' : 'SMAIT Al Firdaus';
+  }
+  return 'Ponpes SIT Al Firdaus';
+}
 
-    const saveBtn = document.getElementById('btn-save-santri');
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Menyimpan...';
+function detectSheetCategory(sheetName) {
+  const s = String(sheetName || '').toLowerCase();
+  if (s.startsWith('a.') || s.includes('alumni')) return 'ALUMNI';
+  if (s.includes('7') || s.includes('8') || s.includes('9') || s.includes('smp')) return 'SMPIT';
+  if (s.includes('10') || s.includes('11') || s.includes('12') || s.includes('sma')) return 'SMAIT';
+  return 'OTHER';
+}
 
-    const existingId = document.getElementById('santri-id').value;
-    const docId = existingId || generateId('S');
-    const payload = {
-        id: docId,
-        nis: document.getElementById('santri-nis').value.trim(),
-        nama: document.getElementById('santri-nama').value.trim(),
-        kelas: document.getElementById('santri-kelas').value,
-        tarif: Number(document.getElementById('santri-tarif').value),
-        wali: document.getElementById('santri-wali').value.trim(),
-        hp: document.getElementById('santri-hp').value.trim(),
-        status: document.getElementById('santri-status').value,
-        updatedBy: currentUser.email,
-        updatedAt: new Date().toISOString()
-    };
+function detectSheetSemester(sheetName) {
+  const s = String(sheetName || '').toLowerCase();
+  if (s.startsWith('a.') || s.includes('alumni')) return 'ALUMNI';
+  if (s.includes('smt 2') || s.includes('smt2') || s.includes('semester 2')) return 'SMT2';
+  if (s.includes('smt 1') || s.includes('smt1') || s.includes('semester 1') || s === 'kelas 10' || s === 'kelas 11') return 'SMT1';
+  return 'SMT1';
+}
 
-    try {
-        setSyncBadge('syncing', 'Menyimpan...');
-        if (existingId) {
-            await updateDoc(doc(db, 'santri', docId), payload);
-        } else {
-            await setDoc(doc(db, 'santri', docId), payload);
-        }
-        closeSantriModal();
-        setSyncBadge('online', 'Cloud Live');
-    } catch (err) {
-        alert('Gagal menyimpan data santri: ' + err.message);
-        setSyncBadge('error', 'Error');
-    } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Simpan Data';
+function getSemesterLabel(smtCode) {
+  if (smtCode === 'SMT1') return 'Semester 1';
+  if (smtCode === 'SMT2') return 'Semester 2';
+  if (smtCode === 'ALUMNI') return 'Arsip Alumni';
+  return 'Umum';
+}
+
+function getSheetChronologicalRank(sheetName) {
+  const s = String(sheetName || '').toLowerCase();
+  const isAlumni = s.startsWith('a.') || s.includes('alumni');
+  const isSmt2 = s.includes('smt 2') || s.includes('smt2') || s.includes('semester 2');
+
+  if (isAlumni && s.includes('smp')) return 95;
+  if (isAlumni && s.includes('sma')) return 135;
+  if (isAlumni) return 140;
+
+  if (s.includes('12')) return isSmt2 ? 122 : 121;
+  if (s.includes('11')) return isSmt2 ? 112 : 111;
+  if (s.includes('10')) return isSmt2 ? 102 : 101;
+  if (s.includes('9')) return isSmt2 ? 92 : 91;
+  if (s.includes('8')) return isSmt2 ? 82 : 81;
+  if (s.includes('7')) return isSmt2 ? 72 : 71;
+  return 500;
+}
+
+function normalizeFixedFeeKey(label) {
+  const l = String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  if (l === 'u. pangkal' || l === 'uang pangkal') return 'uang_pangkal';
+  if (l === 'daftar ulang') return 'daftar_ulang_berjalan';
+  if (l.startsWith('du ') || l.startsWith('daftar ulang ')) {
+    return 'du_' + l.replace(/^daftar ulang\s+/, 'du ').replace(/^du\s+/, '');
+  }
+  return l;
+}
+
+function isCarryOverSummaryLabel(label) {
+  const l = String(label || '').toLowerCase().trim();
+  return (
+    l.includes('smt 1 +') ||
+    l.includes('smt1 +') ||
+    l.startsWith('sisa ') ||
+    l.includes('tunggakan smt')
+  );
+}
+
+// ============================================================================
+// KARTU INDUK SANTRI: PENGELOMPOKAN & DEDUPLIKASI CERDAS LINTAS SEMESTER
+// ============================================================================
+function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
+  const map = {};
+
+  students.forEach((st) => {
+    const norm = normalizeStudentName(st.nama);
+    if (!norm) return;
+    if (!map[norm]) {
+      map[norm] = {
+        normName: norm,
+        displayName: st.nama,
+        wa: st.wa || '',
+        records: []
+      };
     }
-});
-
-// ==================== 9. MATRIKS PEMBAYARAN SYAHRIAH (FIRESTORE) ====================
-function renderSyahriahMatrix() {
-    const year = document.getElementById('syahriah-year-select').value;
-    const keyword = document.getElementById('syahriah-search').value.toLowerCase();
-    const santriList = appData.santri.filter(s => s.status === 'AKTIF' && (s.nama || '').toLowerCase().includes(keyword));
-
-    const tbody = document.getElementById('syahriah-matrix-body');
-    if (santriList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="13" class="py-8 text-center text-slate-400">Tidak ada santri aktif.</td></tr>`;
-        return;
+    if (st.wa && !map[norm].wa) {
+      map[norm].wa = st.wa;
     }
+    map[norm].records.push(st);
+  });
 
-    tbody.innerHTML = santriList.map(s => {
-        let cells = '';
-        for (let m = 0; m < 12; m++) {
-            const key = `${s.id}_${year}_${m}`;
-            const record = appData.syahriah[key];
-            if (record && record.paid) {
-                cells += `
-                    <td class="p-1.5 text-center border-l border-slate-100">
-                        <button data-action="open-syahriah" data-santri-id="${escapeHtml(s.id)}" data-year="${year}" data-month="${m}"
-                            class="w-full py-1.5 px-1 rounded bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] shadow-2xs transition" title="Lunas tgl ${escapeHtml(record.date)}">
-                            <i class="fa-solid fa-check"></i>
-                        </button>
-                    </td>`;
+  const profiles = Object.values(map).map((prof) => {
+    prof.records.sort((a, b) => getSheetChronologicalRank(a.sheet) - getSheetChronologicalRank(b.sheet));
+
+    const seenFixedKeys = {};
+    const sheetSummaries = [];
+    let cleanTotal = 0;
+    let rawTotal = 0;
+    let duplicatedAmount = 0;
+
+    prof.records.forEach((rec, recIdx) => {
+      const hasEarlierSheet = recIdx > 0;
+      const items = [];
+      let sheetCleanSum = 0;
+      let sheetRawSum = 0;
+
+      (rec.fees || []).forEach((fee, feeIdx) => {
+        const amt = Number(fee.amount) || 0;
+        if (amt <= 0) return;
+
+        sheetRawSum += amt;
+        rawTotal += amt;
+
+        let isDuplicate = false;
+        let duplicateReason = '';
+
+        if (dedupMode === 'DEDUP' && fee.type === 'fixed') {
+          const fixedKey = normalizeFixedFeeKey(fee.label);
+
+          if (hasEarlierSheet && isCarryOverSummaryLabel(fee.label)) {
+            isDuplicate = true;
+            duplicateReason = `Rekap bawaan dari ${prof.records[recIdx - 1].sheet}`;
+          } else if (seenFixedKeys[fixedKey]) {
+            const prev = seenFixedKeys[fixedKey];
+            if (amt <= prev.amount) {
+              isDuplicate = true;
+              duplicateReason = `Sudah tercatat di ${prev.sheet}`;
             } else {
-                cells += `
-                    <td class="p-1.5 text-center border-l border-slate-100">
-                        <button data-action="open-syahriah" data-santri-id="${escapeHtml(s.id)}" data-year="${year}" data-month="${m}"
-                            class="w-full py-1.5 px-1 rounded bg-slate-100 hover:bg-amber-100 text-slate-400 hover:text-amber-700 font-medium text-[11px] transition" title="Belum Bayar">
-                            -
-                        </button>
-                    </td>`;
+              prev.itemRef.isDuplicate = true;
+              prev.itemRef.duplicateReason = `Diperbarui di ${rec.sheet}`;
+              prev.sheetSummaryRef.cleanSum -= prev.amount;
+              cleanTotal -= prev.amount;
+              duplicatedAmount += prev.amount;
             }
-        }
+          }
 
-        return `
-            <tr class="hover:bg-slate-50">
-                <td class="py-2.5 px-3 font-bold text-slate-800 sticky left-0 bg-white border-r border-slate-200 z-10">
-                    <div>${escapeHtml(s.nama)}</div>
-                    <div class="text-[10px] font-normal text-slate-400">${escapeHtml(s.kelas)} • ${formatRupiah(s.tarif)}</div>
-                </td>
-                ${cells}
-            </tr>
-        `;
-    }).join('');
-}
+          const itemObj = {
+            studentId: rec.id,
+            sheet: rec.sheet,
+            feeIndex: feeIdx,
+            label: fee.label,
+            amount: amt,
+            type: fee.type,
+            isDuplicate,
+            duplicateReason
+          };
 
-document.getElementById('syahriah-year-select').addEventListener('change', renderSyahriahMatrix);
-document.getElementById('syahriah-search').addEventListener('input', renderSyahriahMatrix);
+          if (!isDuplicate) {
+            sheetCleanSum += amt;
+            cleanTotal += amt;
+            seenFixedKeys[fixedKey] = {
+              sheet: rec.sheet,
+              amount: amt,
+              itemRef: itemObj,
+              sheetSummaryRef: null
+            };
+          } else {
+            duplicatedAmount += amt;
+          }
 
-document.getElementById('syahriah-matrix-body').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-action="open-syahriah"]');
-    if (!btn) return;
-    openSyahriahModal(btn.dataset.santriId, btn.dataset.year, Number(btn.dataset.month));
-});
-
-function closeSyahriahModal() {
-    const modal = document.getElementById('modal-syahriah');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-}
-document.getElementById('btn-close-syahriah-modal').addEventListener('click', closeSyahriahModal);
-
-function openSyahriahModal(santriId, year, monthIdx) {
-    const santri = appData.santri.find(s => s.id === santriId);
-    if (!santri) return;
-    const key = `${santriId}_${year}_${monthIdx}`;
-    const record = appData.syahriah[key];
-    const bulanNama = BULAN_NAMES[monthIdx];
-    const body = document.getElementById('syahriah-modal-body');
-    const canEdit = isAdminRole();
-
-    if (record && record.paid) {
-        const cancelBtnHtml = canEdit ? `
-            <button id="btn-cancel-syahriah" class="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold rounded-lg border border-rose-200 transition text-xs">
-                Batalkan
-            </button>` : '';
-
-        body.innerHTML = `
-            <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center space-y-1">
-                <div class="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-2 text-lg">
-                    <i class="fa-solid fa-check"></i>
-                </div>
-                <p class="font-extrabold text-emerald-800 text-base">SUDAH LUNAS</p>
-                <p class="text-xs text-emerald-700">Syahriah Bulan <b>${bulanNama} ${year}</b></p>
-            </div>
-            <div class="space-y-2 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div class="flex justify-between"><span class="text-slate-500">Nama Santri:</span><span class="font-bold text-slate-800">${escapeHtml(santri.nama)}</span></div>
-                <div class="flex justify-between"><span class="text-slate-500">NIS / Kelas:</span><span class="font-semibold">${escapeHtml(santri.nis)} (${escapeHtml(santri.kelas)})</span></div>
-                <div class="flex justify-between"><span class="text-slate-500">Tanggal Bayar:</span><span class="font-semibold">${escapeHtml(record.date)}</span></div>
-                <div class="flex justify-between"><span class="text-slate-500">Nominal Dibayar:</span><span class="font-extrabold text-emerald-700">${formatRupiah(record.amount)}</span></div>
-            </div>
-            <div class="flex gap-2 pt-2">
-                <button id="btn-print-receipt" class="flex-1 bg-teal-700 hover:bg-teal-800 text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-print"></i> Cetak Kuitansi
-                </button>
-                ${cancelBtnHtml}
-            </div>
-        `;
-
-        document.getElementById('btn-print-receipt').addEventListener('click', () => {
-            printReceipt(santri, bulanNama, year, record.amount, record.date);
-        });
-
-        if (canEdit) {
-            document.getElementById('btn-cancel-syahriah').addEventListener('click', async () => {
-                if (confirm(`Batalkan status lunas syahriah ${santri.nama} bulan ${bulanNama} ${year}? Catatan kas terkait juga akan dihapus.`)) {
-                    try {
-                        setSyncBadge('syncing', 'Membatalkan...');
-                        const batch = writeBatch(db);
-                        if (record.kasId) {
-                            batch.delete(doc(db, 'kas', record.kasId));
-                        }
-                        batch.delete(doc(db, 'syahriah', key));
-                        await batch.commit();
-                        closeSyahriahModal();
-                        setSyncBadge('online', 'Cloud Live');
-                    } catch (err) {
-                        alert('Gagal membatalkan pembayaran: ' + err.message);
-                        setSyncBadge('error', 'Error');
-                    }
-                }
-            });
-        }
-    } else {
-        if (!canEdit) {
-            body.innerHTML = `
-                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center space-y-1">
-                    <p class="font-bold text-amber-800">BELUM LUNAS</p>
-                    <p class="text-xs text-amber-700">Syahriah ${escapeHtml(santri.nama)} bulan <b>${bulanNama} ${year}</b> belum dibayarkan.</p>
-                </div>
-                <p class="text-xs text-slate-500 text-center">Akun Pimpinan memiliki akses lihat saja (View Only).</p>
-            `;
+          items.push(itemObj);
         } else {
-            body.innerHTML = `
-                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1">
-                    <p class="text-xs text-slate-500">Santri:</p>
-                    <p class="font-bold text-slate-800 text-base">${escapeHtml(santri.nama)} <span class="text-xs font-normal text-slate-500">(${escapeHtml(santri.kelas)})</span></p>
-                    <p class="text-xs text-teal-700 font-semibold">Tagihan Bulan: ${bulanNama} ${year}</p>
-                </div>
-                <form id="form-bayar-syahriah" class="space-y-3">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700 mb-1">Tanggal Pembayaran</label>
-                        <input type="date" id="bayar-tanggal" required value="${getTodayDate()}" class="w-full border border-slate-300 rounded-lg px-3 py-2">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700 mb-1">Nominal Bayar (Rp)</label>
-                        <input type="number" id="bayar-nominal" required value="${santri.tarif}" min="0" class="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800">
-                    </div>
-                    <p class="text-[11px] text-slate-500"><i class="fa-solid fa-circle-info text-teal-600"></i> Pembayaran ini otomatis tercatat sebagai <b>Kas Masuk</b> di Buku Kas Pesantren.</p>
-                    <div class="pt-2 flex justify-end gap-2">
-                        <button type="button" id="btn-cancel-bayar-modal" class="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-semibold">Batal</button>
-                        <button type="submit" id="btn-submit-bayar" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Konfirmasi Lunas</button>
-                    </div>
-                </form>
-            `;
-
-            document.getElementById('btn-cancel-bayar-modal').addEventListener('click', closeSyahriahModal);
-            document.getElementById('form-bayar-syahriah').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const submitBtn = document.getElementById('btn-submit-bayar');
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Memproses...';
-
-                const tgl = document.getElementById('bayar-tanggal').value;
-                const nom = Number(document.getElementById('bayar-nominal').value);
-                const kasId = generateId('KAS');
-
-                try {
-                    setSyncBadge('syncing', 'Menyimpan...');
-                    const batch = writeBatch(db);
-
-                    batch.set(doc(db, 'kas', kasId), {
-                        id: kasId,
-                        tanggal: tgl,
-                        jenis: 'MASUK',
-                        kategori: 'Pembayaran Syahriah',
-                        nominal: nom,
-                        keterangan: `Syahriah ${bulanNama} ${year} - ${santri.nama} (${santri.nis})`,
-                        recordedBy: currentUser.email,
-                        createdAt: new Date().toISOString()
-                    });
-
-                    batch.set(doc(db, 'syahriah', key), {
-                        paid: true,
-                        date: tgl,
-                        amount: nom,
-                        kasId: kasId,
-                        recordedBy: currentUser.email,
-                        updatedAt: new Date().toISOString()
-                    });
-
-                    await batch.commit();
-                    closeSyahriahModal();
-                    setSyncBadge('online', 'Cloud Live');
-                } catch (err) {
-                    alert('Gagal menyimpan pembayaran syahriah: ' + err.message);
-                    setSyncBadge('error', 'Error');
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Konfirmasi Lunas';
-                }
-            });
+          sheetCleanSum += amt;
+          cleanTotal += amt;
+          items.push({
+            studentId: rec.id,
+            sheet: rec.sheet,
+            feeIndex: feeIdx,
+            label: fee.label,
+            amount: amt,
+            type: fee.type,
+            isDuplicate: false,
+            duplicateReason: ''
+          });
         }
-    }
+      });
 
-    const modal = document.getElementById('modal-syahriah');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
+      const summaryObj = {
+        studentId: rec.id,
+        sheet: rec.sheet,
+        unit: rec.unit,
+        semester: getSemesterLabel(detectSheetSemester(rec.sheet)),
+        sppDasar: rec.sppDasar,
+        items,
+        cleanSum: sheetCleanSum,
+        rawSum: sheetRawSum
+      };
 
-function printReceipt(santri, bulanNama, year, amount, date) {
-    const win = window.open('', '_blank', 'width=700,height=520');
-    win.document.write(`
-        <html>
-        <head>
-            <title>Kuitansi Syahriah - ${escapeHtml(santri.nama)}</title>
-            <style>
-                body { font-family: Arial, sans-serif; padding: 30px; color: #1e293b; }
-                .box { border: 2px solid #0f766e; padding: 24px; border-radius: 10px; max-width: 600px; margin: auto; }
-                .header { border-bottom: 2px solid #0f766e; padding-bottom: 12px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; }
-                .title { font-size: 18px; font-weight: bold; color: #0f766e; margin: 0; }
-                .sub { font-size: 12px; color: #64748b; margin: 2px 0 0; }
-                .badge { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; }
-                table { width: 100%; font-size: 13px; border-collapse: collapse; }
-                td { padding: 6px 0; }
-                .amount { font-size: 18px; font-weight: bold; color: #0f766e; background: #f0fdfa; padding: 10px; border-radius: 6px; text-align: right; margin-top: 12px; }
-                .footer { margin-top: 30px; text-align: right; font-size: 12px; }
-            </style>
-        </head>
-        <body onload="window.print()">
-            <div class="box">
-                <div class="header">
-                    <div>
-                        <p class="title">PONPES IT AL FIRDAUS</p>
-                        <p class="sub">Kuitansi Resmi Pembayaran Syahriah Santri</p>
-                    </div>
-                    <span class="badge">LUNAS</span>
-                </div>
-                <table>
-                    <tr><td width="160">Tanggal Pembayaran</td><td>: <b>${escapeHtml(date)}</b></td></tr>
-                    <tr><td>Nomor Induk Santri</td><td>: ${escapeHtml(santri.nis)}</td></tr>
-                    <tr><td>Nama Santri</td><td>: <b>${escapeHtml(santri.nama)}</b></td></tr>
-                    <tr><td>Program / Kelas</td><td>: ${escapeHtml(santri.kelas)}</td></tr>
-                    <tr><td>Pembayaran Bulan</td><td>: <b>${escapeHtml(bulanNama)} ${escapeHtml(year)}</b></td></tr>
-                </table>
-                <div class="amount">Total Diterima: ${formatRupiah(amount)}</div>
-                <div class="footer">
-                    <p>Bendahara Ponpes IT Al Firdaus</p>
-                    <br><br>
-                    <p><b>( Bagian Keuangan )</b></p>
-                </div>
-            </div>
-        </body>
-        </html>
-    `);
-    win.document.close();
-}
-
-// ==================== 10. BUKU KAS MASUK & KELUAR (FIRESTORE) ====================
-function renderKasTable() {
-    const keyword = document.getElementById('kas-search').value.toLowerCase();
-    const filterJenis = document.getElementById('kas-filter-jenis').value;
-    const filterBulan = document.getElementById('kas-filter-bulan').value;
-    const canEdit = isAdminRole();
-
-    const filtered = appData.kas
-        .filter(tx => {
-            const matchKey = (tx.keterangan || '').toLowerCase().includes(keyword) || (tx.kategori || '').toLowerCase().includes(keyword);
-            const matchJenis = filterJenis === 'ALL' || tx.jenis === filterJenis;
-            const matchBulan = filterBulan === 'ALL' || (tx.tanggal && tx.tanggal.split('-')[1] === filterBulan);
-            return matchKey && matchJenis && matchBulan;
-        })
-        .sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || '') || (b.id || '').localeCompare(a.id || ''));
-
-    const tbody = document.getElementById('kas-table-body');
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Tidak ada catatan transaksi sesuai filter.</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = filtered.map(tx => {
-        const actionCell = canEdit ? `
-            <td class="py-3 px-4 text-center">
-                <button data-action="delete-kas" data-id="${escapeHtml(tx.id)}" class="text-rose-500 hover:text-rose-700 p-1" title="Hapus Transaksi"><i class="fa-solid fa-trash"></i></button>
-            </td>` : '';
-
-        return `
-            <tr class="hover:bg-slate-50">
-                <td class="py-3 px-4 text-xs text-slate-600 font-medium whitespace-nowrap">${escapeHtml(tx.tanggal)}</td>
-                <td class="py-3 px-4 whitespace-nowrap">
-                    ${tx.jenis === 'MASUK'
-                        ? '<span class="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-700"><i class="fa-solid fa-arrow-down mr-1"></i>Masuk</span>'
-                        : '<span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-700"><i class="fa-solid fa-arrow-up mr-1"></i>Keluar</span>'}
-                </td>
-                <td class="py-3 px-4 text-xs font-semibold text-slate-700">${escapeHtml(tx.kategori)}</td>
-                <td class="py-3 px-4 text-slate-700">${escapeHtml(tx.keterangan)}</td>
-                <td class="py-3 px-4 text-right font-extrabold whitespace-nowrap ${tx.jenis === 'MASUK' ? 'text-emerald-600' : 'text-rose-600'}">
-                    ${tx.jenis === 'MASUK' ? '+' : '-'} ${formatRupiah(tx.nominal)}
-                </td>
-                ${actionCell}
-            </tr>
-        `;
-    }).join('');
-}
-
-document.getElementById('kas-search').addEventListener('input', renderKasTable);
-document.getElementById('kas-filter-jenis').addEventListener('change', renderKasTable);
-document.getElementById('kas-filter-bulan').addEventListener('change', renderKasTable);
-
-function openKasModal(jenis) {
-    if (!isAdminRole()) return;
-    document.getElementById('form-kas').reset();
-    document.getElementById('kas-jenis').value = jenis;
-    document.getElementById('kas-tanggal').value = getTodayDate();
-
-    const header = document.getElementById('modal-kas-header');
-    const title = document.getElementById('modal-kas-title');
-    const katSelect = document.getElementById('kas-kategori');
-
-    if (jenis === 'MASUK') {
-        header.className = 'bg-emerald-700 text-white px-5 py-3.5 flex items-center justify-between';
-        title.textContent = 'Catat Pemasukan Kas';
-        katSelect.innerHTML = KATEGORI_MASUK.map(k => `<option value="${k}">${k}</option>`).join('');
-    } else {
-        header.className = 'bg-rose-700 text-white px-5 py-3.5 flex items-center justify-between';
-        title.textContent = 'Catat Pengeluaran Kas';
-        katSelect.innerHTML = KATEGORI_KELUAR.map(k => `<option value="${k}">${k}</option>`).join('');
-    }
-
-    const modal = document.getElementById('modal-kas');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
-
-function closeKasModal() {
-    const modal = document.getElementById('modal-kas');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-}
-
-document.querySelectorAll('.btn-open-kas-modal').forEach(btn => {
-    btn.addEventListener('click', () => openKasModal(btn.dataset.kasType));
-});
-document.getElementById('btn-close-kas-modal').addEventListener('click', closeKasModal);
-document.getElementById('btn-cancel-kas-modal').addEventListener('click', closeKasModal);
-
-document.getElementById('kas-table-body').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-action="delete-kas"]');
-    if (!btn || !isAdminRole()) return;
-
-    const id = btn.dataset.id;
-    if (confirm('Hapus transaksi kas ini secara permanen dari Cloud?')) {
-        try {
-            setSyncBadge('syncing', 'Menghapus...');
-            await deleteDoc(doc(db, 'kas', id));
-            setSyncBadge('online', 'Cloud Live');
-        } catch (err) {
-            alert('Gagal menghapus transaksi kas: ' + err.message);
-            setSyncBadge('error', 'Error');
+      Object.values(seenFixedKeys).forEach((entry) => {
+        if (entry.sheet === rec.sheet && !entry.sheetSummaryRef) {
+          entry.sheetSummaryRef = summaryObj;
         }
-    }
-});
+      });
 
-document.getElementById('form-kas').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!isAdminRole()) return;
+      sheetSummaries.push(summaryObj);
+    });
 
-    const saveBtn = document.getElementById('btn-save-kas');
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Menyimpan...';
+    const latestRec = prof.records[prof.records.length - 1];
+    const categories = [...new Set(prof.records.map((r) => detectSheetCategory(r.sheet)))];
 
-    const kasId = generateId('KAS');
-    const payload = {
-        id: kasId,
-        tanggal: document.getElementById('kas-tanggal').value,
-        jenis: document.getElementById('kas-jenis').value,
-        kategori: document.getElementById('kas-kategori').value,
-        nominal: Number(document.getElementById('kas-nominal').value),
-        keterangan: document.getElementById('kas-keterangan').value.trim(),
-        recordedBy: currentUser.email,
-        createdAt: new Date().toISOString()
+    return {
+      normName: prof.normName,
+      displayName: prof.displayName,
+      wa: prof.wa,
+      latestUnit: latestRec ? latestRec.unit : 'Ponpes SIT Al Firdaus',
+      categories,
+      sheetCount: prof.records.length,
+      sheetSummaries,
+      cleanTotal,
+      rawTotal,
+      duplicatedAmount
     };
+  });
 
+  return profiles.sort((a, b) => a.displayName.localeCompare(b.displayName, 'id'));
+}
+
+function computeLinkedStudentSyncs(sourceStudent, paidFeeLabel, paidAmount, touchedStudentMap) {
+  if (paidAmount <= 0) return [];
+  const normName = normalizeStudentName(sourceStudent.nama);
+  const siblingRecords = students.filter(
+    (s) => s.id !== sourceStudent.id && normalizeStudentName(s.nama) === normName
+  );
+  if (siblingRecords.length === 0) return [];
+
+  const paidNormKey = normalizeFixedFeeKey(paidFeeLabel);
+  const sourceRank = getSheetChronologicalRank(sourceStudent.sheet);
+  const adjustments = [];
+
+  siblingRecords.forEach((sib) => {
+    const clone = touchedStudentMap[sib.id] || JSON.parse(JSON.stringify(sib));
+    const sibRank = getSheetChronologicalRank(clone.sheet);
+    let modified = false;
+
+    clone.fees.forEach((f, idx) => {
+      if (f.amount <= 0 || f.type !== 'fixed') return;
+      const sameFixed = normalizeFixedFeeKey(f.label) === paidNormKey;
+      const isLaterCarryOver = sibRank > sourceRank && isCarryOverSummaryLabel(f.label);
+
+      if (sameFixed || isLaterCarryOver) {
+        const deduct = Math.min(f.amount, paidAmount);
+        if (deduct > 0) {
+          f.amount -= deduct;
+          modified = true;
+          adjustments.push({
+            studentId: clone.id,
+            feeIndex: idx,
+            label: f.label,
+            deducted: deduct
+          });
+        }
+      }
+    });
+
+    if (modified) {
+      touchedStudentMap[clone.id] = clone;
+    }
+  });
+
+  return adjustments;
+}
+
+// ============================================================================
+// PARSER FILE EXCEL & UNGGAH MASSAL KE CLOUD FIRESTORE
+// ============================================================================
+function handleExcelUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async function (e) {
     try {
-        setSyncBadge('syncing', 'Menyimpan...');
-        await setDoc(doc(db, 'kas', kasId), payload);
-        closeKasModal();
-        setSyncBadge('online', 'Cloud Live');
-    } catch (err) {
-        alert('Gagal menyimpan transaksi kas: ' + err.message);
-        setSyncBadge('error', 'Error');
-    } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Simpan Transaksi';
-    }
-});
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const parsedStudents = [];
 
-// ==================== 11. LAPORAN & TUNGGAKAN ====================
-function renderLaporan() {
-    const bulan = document.getElementById('laporan-bulan').value;
-    const tahun = document.getElementById('laporan-tahun').value;
-    const bulanIdx = parseInt(bulan, 10) - 1;
-    const prefixDate = `${tahun}-${bulan}`;
+      workbook.SheetNames.forEach((sheetName) => {
+        const ws = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-    document.getElementById('laporan-periode-label').textContent = `Periode: ${BULAN_NAMES[bulanIdx]} ${tahun}`;
-
-    let masuk = 0;
-    let keluar = 0;
-    appData.kas.forEach(tx => {
-        if (tx.tanggal && tx.tanggal.startsWith(prefixDate)) {
-            if (tx.jenis === 'MASUK') masuk += Number(tx.nominal);
-            else keluar += Number(tx.nominal);
+        let headerRowIdx = -1;
+        for (let r = 0; r < Math.min(12, rows.length); r++) {
+          const c0 = String(rows[r][0] || '').trim().toLowerCase();
+          const c1 = String(rows[r][1] || '').trim().toLowerCase();
+          if (c0 === 'no' && c1 === 'nama') {
+            headerRowIdx = r;
+            break;
+          }
         }
-    });
 
-    const surplus = masuk - keluar;
-    document.getElementById('lap-pemasukan').textContent = formatRupiah(masuk);
-    document.getElementById('lap-pengeluaran').textContent = formatRupiah(keluar);
-    document.getElementById('lap-surplus').textContent = (surplus >= 0 ? '+ ' : '- ') + formatRupiah(Math.abs(surplus));
+        if (headerRowIdx === -1) return;
 
-    const santriAktif = appData.santri.filter(s => s.status === 'AKTIF');
-    const menunggak = santriAktif.filter(s => {
-        const key = `${s.id}_${tahun}_${bulanIdx}`;
-        return !(appData.syahriah[key] && appData.syahriah[key].paid);
-    });
+        let tahunAjaran = '2026-2027';
+        for (let r = 0; r < headerRowIdx; r++) {
+          const rowStr = rows[r].join(' ');
+          const match = rowStr.match(/20\d{2}\s*-\s*20\d{2}/);
+          if (match) {
+            tahunAjaran = match[0].replace(/\s+/g, '');
+            break;
+          }
+        }
 
-    const tbody = document.getElementById('laporan-tunggakan-body');
-    if (menunggak.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-emerald-700 font-bold border border-slate-200">Alhamdulillah, seluruh santri aktif telah melunasi syahriah periode ini!</td></tr>`;
-    } else {
-        let totalTunggakan = 0;
-        const rows = menunggak.map((s, idx) => {
-            totalTunggakan += Number(s.tarif);
-            return `
-                <tr>
-                    <td class="py-2 px-3 border border-slate-200">${idx + 1}</td>
-                    <td class="py-2 px-3 border border-slate-200 font-mono">${escapeHtml(s.nis)}</td>
-                    <td class="py-2 px-3 border border-slate-200 font-bold">${escapeHtml(s.nama)}</td>
-                    <td class="py-2 px-3 border border-slate-200">${escapeHtml(s.kelas)}</td>
-                    <td class="py-2 px-3 border border-slate-200">${escapeHtml(s.wali)} (${escapeHtml(s.hp || '-')})</td>
-                    <td class="py-2 px-3 border border-slate-200 text-right font-bold text-rose-600">${formatRupiah(s.tarif)}</td>
-                </tr>
-            `;
-        }).join('');
+        const headers = rows[headerRowIdx];
+        const componentCols = [];
 
-        tbody.innerHTML = rows + `
-            <tr class="bg-slate-50 font-extrabold">
-                <td colspan="5" class="py-2 px-3 border border-slate-200 text-right">Total Potensi Tunggakan:</td>
-                <td class="py-2 px-3 border border-slate-200 text-right text-rose-700">${formatRupiah(totalTunggakan)}</td>
-            </tr>
-        `;
+        for (let c = 3; c < headers.length; c++) {
+          let rawH = headers[c];
+          if (rawH === '' || rawH === null || rawH === undefined) continue;
+
+          let label = '';
+          if (rawH instanceof Date && !isNaN(rawH)) {
+            const bulanIndo = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+            label = `${bulanIndo[rawH.getMonth()]} ${rawH.getFullYear()}`;
+          } else {
+            label = String(rawH).trim();
+          }
+
+          const lowerLabel = label.toLowerCase();
+          if (lowerLabel === 'total' || lowerLabel === 'tunggakan') continue;
+
+          const monthKey = detectMonthKey(label);
+          componentCols.push({
+            colIndex: c,
+            label: label,
+            type: monthKey ? 'monthly' : 'fixed',
+            monthKey: monthKey
+          });
+        }
+
+        for (let r = headerRowIdx + 1; r < rows.length; r++) {
+          const row = rows[r];
+          const noVal = String(row[0] || '').trim();
+          const namaVal = String(row[1] || '').trim();
+
+          if (!namaVal) continue;
+          if (namaVal.toLowerCase().startsWith('total')) break;
+          if (noVal === '' && isNaN(Number(noVal))) continue;
+
+          const sppDasar = parseNumericCell(row[2]);
+          const fees = componentCols.map((col) => ({
+            label: col.label,
+            amount: parseNumericCell(row[col.colIndex]),
+            type: col.type,
+            monthKey: col.monthKey
+          }));
+
+          const safeSheetId = sheetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+          parsedStudents.push({
+            id: `st-${safeSheetId}-${r}`,
+            sheet: sheetName,
+            unit: inferUnitFromSheet(sheetName),
+            tahunAjaran: tahunAjaran,
+            nama: namaVal,
+            wa: '',
+            sppDasar: sppDasar,
+            fees: fees
+          });
+        }
+      });
+
+      if (parsedStudents.length === 0) {
+        alert('Format header No / Nama tidak ditemukan pada file Excel tersebut.');
+        return;
+      }
+
+      if (!confirm(`Ditemukan ${parsedStudents.length} data baris dari ${workbook.SheetNames.length} sheet.\n\nData di Cloud Firestore akan diperbarui sesuai file Excel ini (Nomor WA yang sudah tersimpan tetap dipertahankan). Lanjutkan?`)) {
+        return;
+      }
+
+      // Pertahankan nomor WA wali santri yang sudah pernah diinput
+      const oldWaMap = {};
+      students.forEach((s) => {
+        if (s.wa) oldWaMap[normalizeStudentName(s.nama)] = s.wa;
+      });
+      parsedStudents.forEach((s) => {
+        const norm = normalizeStudentName(s.nama);
+        if (oldWaMap[norm]) s.wa = oldWaMap[norm];
+      });
+
+      const newIdSet = new Set(parsedStudents.map((s) => s.id));
+      const ops = [];
+
+      // Hapus dokumen lama yang tidak ada di Excel baru
+      students.forEach((oldSt) => {
+        if (!newIdSet.has(oldSt.id)) {
+          ops.push({ type: 'delete', collection: 'students', id: oldSt.id });
+        }
+      });
+
+      // Simpan/timpa dokumen baru ke Firestore
+      parsedStudents.forEach((st) => {
+        ops.push({ type: 'set', collection: 'students', id: st.id, data: st });
+      });
+
+      await commitFirestoreOps(ops);
+      await logAuditAction('IMPORT_EXCEL', `Import ${parsedStudents.length} baris dari file ${file.name}`);
+      alert(`Berhasil mengimpor & menyinkronkan ${parsedStudents.length} data santri ke Cloud Firestore!`);
+    } catch (err) {
+      console.error(err);
+      alert('Gagal memproses file Excel: ' + err.message);
     }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
 }
 
-document.getElementById('laporan-bulan').addEventListener('change', renderLaporan);
-document.getElementById('laporan-tahun').addEventListener('change', renderLaporan);
-document.getElementById('btn-print-laporan').addEventListener('click', () => window.print());
+function parseNumericCell(val) {
+  if (typeof val === 'number') return Math.max(0, Math.round(val));
+  if (!val) return 0;
+  const cleaned = String(val).replace(/[^\d.-]/g, '');
+  const parsed = Number(cleaned);
+  return isNaN(parsed) ? 0 : Math.max(0, Math.round(parsed));
+}
 
-// ==================== 12. EXPORT EXCEL & CLOUD JSON BACKUP / RESTORE ====================
-document.getElementById('btn-export-excel').addEventListener('click', () => {
-    if (typeof XLSX === 'undefined') {
-        alert('Library Excel belum termuat. Periksa koneksi internet Anda.');
-        return;
+// ============================================================================
+// PERHITUNGAN TUNGGAKAN AKURAT BERDASARKAN CUT-OFF BULAN
+// ============================================================================
+function getStudentArrears(student, cutoffMonth) {
+  const cutoffLower = (cutoffMonth || 'ALL').toLowerCase();
+  const cutoffIdx = MONTH_ORDER.indexOf(cutoffLower);
+
+  const activeItems = [];
+  let total = 0;
+
+  (student.fees || []).forEach((fee, idx) => {
+    const amt = Number(fee.amount) || 0;
+    if (amt <= 0) return;
+
+    let included = true;
+    if (cutoffLower !== 'all' && fee.type === 'monthly' && fee.monthKey) {
+      const mIdx = MONTH_ORDER.indexOf(fee.monthKey);
+      const isSmt2Cutoff = cutoffIdx >= 6;
+      const isSmt2Item = mIdx >= 6;
+      if (!isSmt2Cutoff && isSmt2Item) {
+        included = false;
+      } else if (mIdx > cutoffIdx) {
+        included = false;
+      }
     }
-    const wb = XLSX.utils.book_new();
 
-    const wsSantri = XLSX.utils.json_to_sheet(appData.santri.map(s => ({
-        NIS: s.nis,
-        Nama_Santri: s.nama,
-        Program_Kelas: s.kelas,
-        Tarif_Syahriah: s.tarif,
-        Wali_Santri: s.wali,
-        No_HP: s.hp,
-        Status: s.status
-    })));
-    XLSX.utils.book_append_sheet(wb, wsSantri, 'Data Santri');
+    if (included) {
+      total += amt;
+      activeItems.push({ index: idx, label: fee.label, amount: amt });
+    }
+  });
 
-    const wsKas = XLSX.utils.json_to_sheet(appData.kas.map(k => ({
-        Tanggal: k.tanggal,
-        Jenis: k.jenis,
-        Kategori: k.kategori,
-        Keterangan: k.keterangan,
-        Nominal: k.nominal
-    })));
-    XLSX.utils.book_append_sheet(wb, wsKas, 'Buku Kas Umum');
+  return { total, activeItems };
+}
 
-    const year = document.getElementById('syahriah-year-select').value;
-    const syahriahRows = appData.santri.filter(s => s.status === 'AKTIF').map(s => {
-        const row = { NIS: s.nis, Nama_Santri: s.nama, Kelas: s.kelas };
-        BULAN_SHORT.forEach((b, idx) => {
-            const key = `${s.id}_${year}_${idx}`;
-            row[b] = (appData.syahriah[key] && appData.syahriah[key].paid) ? 'LUNAS' : 'BELUM';
-        });
-        return row;
-    });
-    const wsSyahriah = XLSX.utils.json_to_sheet(syahriahRows);
-    XLSX.utils.book_append_sheet(wb, wsSyahriah, `Syahriah_${year}`);
+// ============================================================================
+// FILTER & RENDER UI TABEL UTAMA, KARTU INDUK, & REKAPITULASI
+// ============================================================================
+function onUnitOrSemesterChange(isSemesterChanged = false) {
+  const smtFilter = document.getElementById('filter-semester').value;
+  const cutoffSelect = document.getElementById('filter-cutoff');
 
-    XLSX.writeFile(wb, `Keuangan_Ponpes_AlFirdaus_${getTodayDate()}.xlsx`);
-});
+  if (isSemesterChanged) {
+    const currentCutoffIdx = MONTH_ORDER.indexOf(cutoffSelect.value.toLowerCase());
+    if (smtFilter === 'SMT2' && currentCutoffIdx >= 0 && currentCutoffIdx < 6) {
+      cutoffSelect.value = 'ALL';
+    } else if (smtFilter === 'SMT1' && currentCutoffIdx >= 6) {
+      cutoffSelect.value = 'Oktober';
+    }
+  }
 
-document.getElementById('btn-backup-json').addEventListener('click', () => {
-    const dataStr = JSON.stringify(appData, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Backup_Cloud_Keuangan_AlFirdaus_${getTodayDate()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-});
+  populateSheetFilter();
+  renderTable();
+}
 
-document.getElementById('input-restore-json').addEventListener('change', (e) => {
-    if (!isAdminRole()) return;
-    const file = e.target.files[0];
-    if (!file) return;
+function resetFilters() {
+  document.getElementById('filter-unit').value = 'ALL';
+  document.getElementById('filter-semester').value = 'ALL';
+  document.getElementById('filter-cutoff').value = 'Oktober';
+  document.getElementById('filter-status').value = 'ALL';
+  document.getElementById('filter-search').value = '';
+  populateSheetFilter();
+  renderTable();
+}
 
-    const reader = new FileReader();
-    reader.onload = async function(evt) {
-        try {
-            const parsed = JSON.parse(evt.target.result);
-            if (!parsed.santri || !parsed.kas) {
-                alert('Format file JSON tidak valid! Pastikan file memiliki struktur santri dan kas.');
-                return;
-            }
-            if (!confirm(`Unggah ${parsed.santri.length} data santri dan ${parsed.kas.length} transaksi kas ke Cloud Firestore sekarang?`)) {
-                return;
-            }
+function populateSheetFilter() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
+  const select = document.getElementById('filter-sheet');
+  const currentVal = select.value;
 
-            setSyncBadge('syncing', 'Mengunggah Backup...');
-            const batch = writeBatch(db);
+  const matchingSheets = [...new Set(
+    students
+      .filter((s) => {
+        if (unitFilter !== 'ALL' && detectSheetCategory(s.sheet) !== unitFilter) return false;
+        if (smtFilter !== 'ALL' && detectSheetSemester(s.sheet) !== smtFilter) return false;
+        return true;
+      })
+      .map((s) => s.sheet)
+  )];
 
-            parsed.santri.forEach(s => {
-                const sId = s.id || generateId('S');
-                batch.set(doc(db, 'santri', sId), { ...s, id: sId });
-            });
+  select.innerHTML = '<option value="ALL">-- Semua Kelas yang Cocok --</option>';
+  matchingSheets.forEach((sh) => {
+    const opt = document.createElement('option');
+    opt.value = sh;
+    opt.textContent = sh;
+    select.appendChild(opt);
+  });
 
-            parsed.kas.forEach(k => {
-                const kId = k.id || generateId('KAS');
-                batch.set(doc(db, 'kas', kId), { ...k, id: kId });
-            });
+  select.value = matchingSheets.includes(currentVal) ? currentVal : 'ALL';
 
-            if (parsed.syahriah && typeof parsed.syahriah === 'object') {
-                Object.entries(parsed.syahriah).forEach(([key, val]) => {
-                    batch.set(doc(db, 'syahriah', key), val);
-                });
-            }
+  const allSheets = [...new Set(students.map((s) => s.sheet))];
+  const datalist = document.getElementById('existing-sheets-list');
+  if (datalist) {
+    datalist.innerHTML = allSheets.map((sh) => `<option value="${sh}"></option>`).join('');
+  }
+}
 
-            await batch.commit();
-            setSyncBadge('online', 'Cloud Live');
-            alert('Alhamdulillah! Seluruh data backup JSON berhasil disinkronisasi ke Cloud Firestore!');
-        } catch (err) {
-            console.error('Restore JSON error:', err);
-            setSyncBadge('error', 'Gagal Upload');
-            alert('Gagal memproses file JSON: ' + err.message);
-        } finally {
-            e.target.value = '';
-        }
+function renderTable() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
+  const sheetFilter = document.getElementById('filter-sheet').value;
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+  const statusFilter = document.getElementById('filter-status').value;
+  const searchFilter = document.getElementById('filter-search').value.toLowerCase().trim();
+
+  const nameSheetCounts = {};
+  students.forEach((s) => {
+    const norm = normalizeStudentName(s.nama);
+    nameSheetCounts[norm] = (nameSheetCounts[norm] || 0) + 1;
+  });
+
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = '';
+
+  let countSantri = 0;
+  let countLunas = 0;
+  let countMenunggak = 0;
+  let grandTotalTunggakan = 0;
+
+  const filtered = students.filter((st) => {
+    if (unitFilter !== 'ALL' && detectSheetCategory(st.sheet) !== unitFilter) return false;
+    if (smtFilter !== 'ALL' && detectSheetSemester(st.sheet) !== smtFilter) return false;
+    if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return false;
+    if (searchFilter && !st.nama.toLowerCase().includes(searchFilter)) return false;
+
+    const { total } = getStudentArrears(st, cutoffFilter);
+    if (statusFilter === 'TUNGGAKAN' && total <= 0) return false;
+    if (statusFilter === 'LUNAS' && total > 0) return false;
+    return true;
+  });
+
+  filtered.forEach((st, i) => {
+    const { total, activeItems } = getStudentArrears(st, cutoffFilter);
+    countSantri++;
+    if (total === 0) countLunas++;
+    else countMenunggak++;
+    grandTotalTunggakan += total;
+
+    const norm = normalizeStudentName(st.nama);
+    const linkedCount = nameSheetCounts[norm] || 1;
+    const escapedNorm = norm.replace(/'/g, "\\'");
+
+    const smtCode = detectSheetSemester(st.sheet);
+    const smtBadgeColor = smtCode === 'SMT2'
+      ? 'bg-sky-100 text-sky-900 border-sky-300'
+      : smtCode === 'ALUMNI'
+        ? 'bg-slate-100 text-slate-700 border-slate-300'
+        : 'bg-blue-100 text-blue-950 border-blue-300';
+
+    const linkedBadge = linkedCount > 1
+      ? `<button onclick="openIndukDetailModal('${escapedNorm}')" class="ml-1.5 inline-flex items-center gap-1 bg-sky-100 hover:bg-sky-200 text-blue-950 border border-sky-300 text-[10px] font-bold px-1.5 py-0.5 rounded" title="Klik untuk buka Kartu Induk Gabungan Lintas Semester"><i class="fa-solid fa-link text-sky-700"></i> ${linkedCount} Smt</button>`
+      : '';
+
+    const badgesHtml = activeItems.length > 0
+      ? activeItems.map((it) => `<span class="inline-block bg-rose-50 text-rose-700 border border-rose-200 text-[11px] px-2 py-0.5 rounded mr-1 mb-1">${it.label}: <b>${formatRupiah(it.amount)}</b></span>`).join('')
+      : '<span class="text-xs text-sky-700 italic">Tidak ada tunggakan</span>';
+
+    const statusBadge = total === 0
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-blue-950 border border-sky-300">LUNAS</span>'
+      : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">MENUNGGAK</span>';
+
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-sky-50/60 transition';
+    tr.innerHTML = `
+      <td class="px-4 py-3 text-slate-500">${i + 1}</td>
+      <td class="px-4 py-3">
+        <div class="font-bold text-blue-950 flex items-center flex-wrap">
+          <span>${st.nama}</span>
+          ${linkedBadge}
+        </div>
+        <div class="text-[11px] text-slate-400 mt-0.5">${st.wa ? '<i class="fa-brands fa-whatsapp text-green-600"></i> ' + st.wa : 'No. WA belum diisi'}</div>
+      </td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap items-center gap-1">
+          <span class="bg-blue-950 text-white font-bold text-xs px-2 py-0.5 rounded">${st.sheet}</span>
+          <span class="border text-[10px] font-semibold px-1.5 py-0.5 rounded ${smtBadgeColor}">${getSemesterLabel(smtCode)}</span>
+        </div>
+        <div class="text-[11px] text-slate-500 mt-0.5">${st.unit}</div>
+      </td>
+      <td class="px-4 py-3 text-right font-medium text-slate-600">${formatRupiah(st.sppDasar)}</td>
+      <td class="px-4 py-3 max-w-xs">${badgesHtml}</td>
+      <td class="px-4 py-3 text-right font-bold ${total > 0 ? 'text-rose-600' : 'text-blue-900'}">${formatRupiah(total)}</td>
+      <td class="px-4 py-3 text-center">${statusBadge}</td>
+      <td class="px-4 py-3">
+        <div class="flex items-center justify-center gap-1">
+          <button onclick="openBayarModal('${st.id}')" class="btn-brand-primary text-xs px-2 py-1.5 rounded-lg font-semibold" title="Catat Pembayaran Kelas Ini">
+            <i class="fa-solid fa-cash-register"></i> Bayar
+          </button>
+          <button onclick="openIndukDetailModal('${escapedNorm}')" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-2 py-1.5 rounded-lg font-semibold" title="Buka Kartu Induk Gabungan Lintas Semester">
+            <i class="fa-solid fa-id-card"></i>
+          </button>
+          <button onclick="openWAModal('${st.id}')" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1.5 rounded-lg" title="Kirim Tagihan via WhatsApp">
+            <i class="fa-brands fa-whatsapp"></i>
+          </button>
+          <button onclick="openPrintTagihan('${st.id}')" class="bg-slate-800 hover:bg-slate-900 text-white text-xs px-2 py-1.5 rounded-lg" title="Cetak Surat Tagihan PDF">
+            <i class="fa-solid fa-print"></i>
+          </button>
+          <button onclick="openEditModal('${st.id}')" class="bg-amber-500 hover:bg-amber-600 text-white text-xs px-2 py-1.5 rounded-lg" title="Edit Data Santri">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-400">Tidak ada data santri yang sesuai filter.</td></tr>';
+  }
+
+  let contextLabel = 'Semua Kelas / Unit';
+  if (sheetFilter !== 'ALL') contextLabel = `Kelas: ${sheetFilter}`;
+  else if (unitFilter !== 'ALL' || smtFilter !== 'ALL') {
+    const parts = [];
+    if (unitFilter !== 'ALL') parts.push(unitFilter);
+    if (smtFilter !== 'ALL') parts.push(getSemesterLabel(smtFilter));
+    contextLabel = parts.join(' - ');
+  }
+
+  document.getElementById('stat-total-santri').textContent = countSantri;
+  document.getElementById('stat-kelas-aktif').textContent = contextLabel;
+  document.getElementById('stat-lunas').textContent = countLunas;
+  document.getElementById('stat-menunggak').textContent = countMenunggak;
+  document.getElementById('stat-total-tunggakan').textContent = formatRupiah(grandTotalTunggakan);
+  document.getElementById('stat-cutoff-label').textContent = cutoffFilter === 'ALL' ? 'Cut-off: Semua Bulan' : `Cut-off: s.d. ${cutoffFilter}`;
+
+  renderRekap();
+  renderIndukTab();
+}
+
+function renderRekap() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
+  const sheetFilter = document.getElementById('filter-sheet').value;
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+
+  const tbody = document.getElementById('rekap-body');
+  const tfoot = document.getElementById('rekap-foot');
+  tbody.innerHTML = '';
+
+  const grouped = {};
+  students.forEach((st) => {
+    if (unitFilter !== 'ALL' && detectSheetCategory(st.sheet) !== unitFilter) return;
+    if (smtFilter !== 'ALL' && detectSheetSemester(st.sheet) !== smtFilter) return;
+    if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return;
+
+    if (!grouped[st.sheet]) {
+      grouped[st.sheet] = {
+        sheet: st.sheet,
+        unit: st.unit,
+        semester: getSemesterLabel(detectSheetSemester(st.sheet)),
+        totalSantri: 0,
+        lunas: 0,
+        menunggak: 0,
+        nominal: 0
+      };
+    }
+    const { total } = getStudentArrears(st, cutoffFilter);
+    grouped[st.sheet].totalSantri++;
+    if (total === 0) grouped[st.sheet].lunas++;
+    else grouped[st.sheet].menunggak++;
+    grouped[st.sheet].nominal += total;
+  });
+
+  let sumSantri = 0, sumLunas = 0, sumMenunggak = 0, sumNominal = 0;
+  Object.values(grouped).forEach((g, idx) => {
+    sumSantri += g.totalSantri;
+    sumLunas += g.lunas;
+    sumMenunggak += g.menunggak;
+    sumNominal += g.nominal;
+
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-sky-50/60 cursor-pointer';
+    tr.title = 'Klik untuk melihat detail santri kelas ini';
+    tr.onclick = () => {
+      document.getElementById('filter-sheet').value = g.sheet;
+      switchTab('tagihan');
+      renderTable();
     };
-    reader.readAsText(file);
+    tr.innerHTML = `
+      <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
+      <td class="px-4 py-3 font-bold text-blue-900 underline">${g.sheet}</td>
+      <td class="px-4 py-3 text-slate-600">${g.unit}</td>
+      <td class="px-4 py-3 text-xs font-semibold text-sky-800">${g.semester}</td>
+      <td class="px-4 py-3 text-center">${g.totalSantri}</td>
+      <td class="px-4 py-3 text-center text-blue-900 font-semibold">${g.lunas}</td>
+      <td class="px-4 py-3 text-center text-rose-600 font-semibold">${g.menunggak}</td>
+      <td class="px-4 py-3 text-right font-bold text-blue-950">${formatRupiah(g.nominal)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (Object.keys(grouped).length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-400">Tidak ada data kelas pada filter ini.</td></tr>';
+  }
+
+  tfoot.innerHTML = `
+    <tr>
+      <td colspan="4" class="px-4 py-3 text-right uppercase text-xs">Grand Total (${cutoffFilter === 'ALL' ? 'Semua Bulan' : 's.d. ' + cutoffFilter}):</td>
+      <td class="px-4 py-3 text-center">${sumSantri}</td>
+      <td class="px-4 py-3 text-center">${sumLunas}</td>
+      <td class="px-4 py-3 text-center">${sumMenunggak}</td>
+      <td class="px-4 py-3 text-right text-base">${formatRupiah(sumNominal)}</td>
+    </tr>
+  `;
+}
+
+// ============================================================================
+// RENDER TAB & MODAL KARTU INDUK SANTRI (LINTAS SEMESTER)
+// ============================================================================
+function renderIndukTab() {
+  const dedupMode = document.getElementById('induk-dedup-mode').value;
+  const search = document.getElementById('induk-search').value.toLowerCase().trim();
+  const unitFilter = document.getElementById('induk-filter-unit').value;
+  const multiFilter = document.getElementById('induk-filter-multi').value;
+  const statusFilter = document.getElementById('induk-filter-status').value;
+
+  const allProfiles = buildUnifiedStudentProfiles(dedupMode);
+  document.getElementById('badge-induk').textContent = allProfiles.length;
+
+  const filtered = allProfiles.filter((p) => {
+    if (search && !p.displayName.toLowerCase().includes(search)) return false;
+    if (unitFilter !== 'ALL' && !p.categories.includes(unitFilter)) return false;
+    if (multiFilter === 'MULTI' && p.sheetCount <= 1) return false;
+    if (multiFilter === 'SINGLE' && p.sheetCount > 1) return false;
+
+    const totalVal = dedupMode === 'DEDUP' ? p.cleanTotal : p.rawTotal;
+    if (statusFilter === 'TUNGGAKAN' && totalVal <= 0) return false;
+    if (statusFilter === 'LUNAS' && totalVal > 0) return false;
+    return true;
+  });
+
+  let multiCount = 0;
+  let sumCombined = 0;
+  const tbody = document.getElementById('induk-body');
+  tbody.innerHTML = '';
+
+  filtered.forEach((p, idx) => {
+    const totalVal = dedupMode === 'DEDUP' ? p.cleanTotal : p.rawTotal;
+    if (p.sheetCount > 1) multiCount++;
+    sumCombined += totalVal;
+
+    const escapedNorm = p.normName.replace(/'/g, "\\'");
+
+    const chainHtml = p.sheetSummaries
+      .map((s) => `<span class="inline-block bg-sky-100 text-blue-950 border border-sky-300 text-[11px] font-bold px-2 py-0.5 rounded">${s.sheet}</span>`)
+      .join(' <i class="fa-solid fa-arrow-right text-[9px] text-sky-500 mx-0.5"></i> ');
+
+    const breakdownHtml = p.sheetSummaries
+      .map((s) => {
+        const subVal = dedupMode === 'DEDUP' ? s.cleanSum : s.rawSum;
+        return `<div class="text-xs flex items-center justify-between gap-3 py-0.5 border-b border-blue-50 last:border-0">
+          <span class="text-slate-600 font-medium">${s.sheet}:</span>
+          <span class="font-bold ${subVal > 0 ? 'text-rose-600' : 'text-blue-900'}">${formatRupiah(subVal)}</span>
+        </div>`;
+      })
+      .join('');
+
+    const statusBadge = totalVal === 0
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-blue-950 border border-sky-300">LUNAS</span>'
+      : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">MENUNGGAK</span>';
+
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-sky-50/60 transition';
+    tr.innerHTML = `
+      <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
+      <td class="px-4 py-3">
+        <div class="font-bold text-blue-950">${p.displayName}</div>
+        <div class="text-[11px] text-slate-500">${p.latestUnit}</div>
+        <div class="text-[11px] text-slate-400">${p.wa ? '<i class="fa-brands fa-whatsapp text-green-600"></i> ' + p.wa : 'No. WA belum diisi'}</div>
+      </td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap items-center gap-y-1">${chainHtml}</div>
+        ${p.duplicatedAmount > 0 && dedupMode === 'DEDUP'
+          ? `<div class="text-[10px] text-sky-700 mt-1"><i class="fa-solid fa-shield-halved mr-1"></i>Anti-ganda: ${formatRupiah(p.duplicatedAmount)} pos bawaan disesuaikan</div>`
+          : ''}
+      </td>
+      <td class="px-4 py-3 min-w-[190px]">${breakdownHtml}</td>
+      <td class="px-4 py-3 text-right font-extrabold text-sm ${totalVal > 0 ? 'text-rose-600' : 'text-blue-900'}">${formatRupiah(totalVal)}</td>
+      <td class="px-4 py-3 text-center">${statusBadge}</td>
+      <td class="px-4 py-3 text-center">
+        <button onclick="openIndukDetailModal('${escapedNorm}')" class="btn-brand-primary text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
+          <i class="fa-solid fa-id-card text-sky-300 mr-1"></i>Buka Kartu Induk
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">Tidak ada profil santri yang sesuai filter.</td></tr>';
+  }
+
+  document.getElementById('induk-stat-unique').textContent = filtered.length;
+  document.getElementById('induk-stat-multi').textContent = multiCount;
+  document.getElementById('induk-stat-total').textContent = formatRupiah(sumCombined);
+}
+
+function openIndukDetailModal(normName) {
+  document.getElementById('induk-modal-norm-name').value = normName;
+  document.getElementById('induk-modal-mode').value = document.getElementById('induk-dedup-mode').value || 'DEDUP';
+  refreshIndukDetailModal();
+  openModal('modal-induk');
+}
+
+function refreshIndukDetailModal() {
+  const normName = document.getElementById('induk-modal-norm-name').value;
+  const mode = document.getElementById('induk-modal-mode').value;
+  const profiles = buildUnifiedStudentProfiles(mode);
+  const prof = profiles.find((p) => p.normName === normName);
+  if (!prof) return;
+
+  const grandTotal = mode === 'DEDUP' ? prof.cleanTotal : prof.rawTotal;
+  document.getElementById('induk-modal-nama').textContent = `Kartu Induk: ${prof.displayName}`;
+  document.getElementById('induk-modal-subtitle').textContent = `${prof.latestUnit} • Terhubung di ${prof.sheetCount} Kelas/Semester (${prof.sheetSummaries.map((s) => s.sheet).join(' → ')})`;
+  document.getElementById('induk-modal-wa').value = prof.wa || '';
+  document.getElementById('induk-modal-grand-total').textContent = formatRupiah(grandTotal);
+
+  const noteEl = document.getElementById('induk-modal-dedup-note');
+  if (mode === 'DEDUP' && prof.duplicatedAmount > 0) {
+    noteEl.innerHTML = `<i class="fa-solid fa-circle-info text-sky-700 mr-1"></i>Pos bawaan/duplikat lintas semester sebesar <b>${formatRupiah(prof.duplicatedAmount)}</b> otomatis dikecualikan agar tidak tertagih ganda.`;
+  } else if (prof.sheetCount > 1) {
+    noteEl.textContent = 'Seluruh pos dari semua semester telah digabungkan secara kronologis.';
+  } else {
+    noteEl.textContent = 'Santri ini memiliki 1 catatan kelas/semester aktif.';
+  }
+
+  const container = document.getElementById('induk-modal-sheets-container');
+  container.innerHTML = '';
+
+  prof.sheetSummaries.forEach((sh) => {
+    const subTotal = mode === 'DEDUP' ? sh.cleanSum : sh.rawSum;
+    const card = document.createElement('div');
+    card.className = 'border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm';
+
+    const itemsRows = sh.items.length > 0
+      ? sh.items.map((it) => `
+          <tr class="border-b border-blue-50 last:border-0 ${it.isDuplicate ? 'bg-amber-50/60 text-slate-400' : ''}">
+            <td class="px-3 py-2 text-xs font-medium">
+              <span class="${it.isDuplicate ? 'line-through' : 'text-slate-700'}">${it.label}</span>
+              ${it.isDuplicate ? `<span class="ml-1.5 inline-block bg-amber-100 text-amber-800 text-[10px] font-semibold px-1.5 py-0.5 rounded">${it.duplicateReason}</span>` : ''}
+            </td>
+            <td class="px-3 py-2 text-xs text-right font-semibold ${it.isDuplicate ? 'line-through text-slate-400' : 'text-rose-700'}">
+              ${formatRupiah(it.amount)}
+            </td>
+          </tr>`).join('')
+      : `<tr><td colspan="2" class="px-3 py-3 text-center text-xs text-blue-900 font-semibold">Alhamdulillah, seluruh pos di kelas ini sudah LUNAS</td></tr>`;
+
+    card.innerHTML = `
+      <div class="bg-sky-50 px-3.5 py-2.5 flex items-center justify-between border-b border-blue-100">
+        <div>
+          <span class="font-bold text-xs text-blue-950">${sh.sheet}</span>
+          <span class="text-[11px] text-slate-500 ml-1.5">(${sh.unit} &bull; SPP: ${formatRupiah(sh.sppDasar)})</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold ${subTotal > 0 ? 'text-rose-700' : 'text-blue-900'}">Subtotal: ${formatRupiah(subTotal)}</span>
+          <button onclick="openEditModal('${sh.studentId}'); closeModal('modal-induk');" class="text-[11px] bg-white hover:bg-sky-100 text-blue-950 px-2 py-0.5 rounded border border-sky-300" title="Edit Pos Kelas Ini">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+        </div>
+      </div>
+      <table class="w-full text-left">
+        <tbody>${itemsRows}</tbody>
+      </table>
+    `;
+    container.appendChild(card);
+  });
+}
+
+async function saveIndukWA() {
+  const normName = document.getElementById('induk-modal-norm-name').value;
+  const newWa = document.getElementById('induk-modal-wa').value.trim();
+
+  const matching = students.filter((s) => normalizeStudentName(s.nama) === normName);
+  if (matching.length === 0) return;
+
+  try {
+    const ops = matching.map((s) => ({
+      type: 'set',
+      collection: 'students',
+      id: s.id,
+      data: { ...s, wa: newWa }
+    }));
+    await commitFirestoreOps(ops);
+    alert('Nomor WhatsApp wali santri berhasil disimpan ke Cloud & disinkronkan ke seluruh kelas/semester santri ini!');
+  } catch (err) {
+    alert('Gagal menyimpan nomor WA: ' + err.message);
+  }
+}
+
+function openWAInduk() {
+  const normName = document.getElementById('induk-modal-norm-name').value;
+  const mode = document.getElementById('induk-modal-mode').value;
+  const prof = buildUnifiedStudentProfiles(mode).find((p) => p.normName === normName);
+  if (!prof) return;
+
+  const grandTotal = mode === 'DEDUP' ? prof.cleanTotal : prof.rawTotal;
+  const sectionsText = prof.sheetSummaries.map((sh) => {
+    const validItems = sh.items.filter((it) => !it.isDuplicate);
+    if (validItems.length === 0) return `*[${sh.sheet}]* : LUNAS`;
+    const lines = validItems.map((it) => `  - ${it.label}: ${formatRupiah(it.amount)}`).join('\n');
+    return `*[${sh.sheet}]*\n${lines}`;
+  }).join('\n\n');
+
+  const msg = `Assalamu'alaikum Warahmatullahi Wabarakatuh.
+Yth. Bapak/Ibu Orang Tua/Wali Santri dari:
+
+*Nama Santri* : ${prof.displayName}
+*Unit* : ${prof.latestUnit}
+*Riwayat Kelas* : ${prof.sheetSummaries.map((s) => s.sheet).join(' → ')}
+
+Berikut kami sampaikan rekapitulasi gabungan biaya pendidikan Ponpes SIT Al Firdaus:
+
+${sectionsText}
+
+*TOTAL TAGIHAN GABUNGAN : ${formatRupiah(grandTotal)}*
+
+Mohon konfirmasi bukti transfer apabila Bapak/Ibu telah melakukan pembayaran. Atas perhatian dan kerja samanya kami ucapkan Jazakumullahu Khairan Katsiran.
+
+Hormat kami,
+*Bendahara Ponpes SIT Al Firdaus*
+*Restasari, S.Sos*`;
+
+  document.getElementById('wa-phone').value = prof.wa || '';
+  document.getElementById('wa-message').value = msg;
+  openModal('modal-wa');
+}
+
+function openPrintInduk() {
+  const normName = document.getElementById('induk-modal-norm-name').value;
+  const mode = document.getElementById('induk-modal-mode').value;
+  const prof = buildUnifiedStudentProfiles(mode).find((p) => p.normName === normName);
+  if (!prof) return;
+
+  const grandTotal = mode === 'DEDUP' ? prof.cleanTotal : prof.rawTotal;
+  const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  let rowNum = 1;
+  let rowsHtml = '';
+  prof.sheetSummaries.forEach((sh) => {
+    const validItems = sh.items.filter((it) => !it.isDuplicate);
+    validItems.forEach((it) => {
+      rowsHtml += `
+        <tr class="border-b border-slate-200">
+          <td class="py-2 px-3 text-center">${rowNum++}</td>
+          <td class="py-2 px-3 font-semibold text-blue-950">${sh.sheet}</td>
+          <td class="py-2 px-3">${it.label}</td>
+          <td class="py-2 px-3 text-right font-semibold">${formatRupiah(it.amount)}</td>
+        </tr>`;
+    });
+  });
+
+  if (!rowsHtml) {
+    rowsHtml = `<tr><td colspan="4" class="py-4 text-center text-blue-900 font-semibold">Alhamdulillah, Seluruh Tagihan Lintas Semester Sudah LUNAS</td></tr>`;
+  }
+
+  document.getElementById('print-area').innerHTML = `
+    ${getKopSuratHTML()}
+    <div class="text-center mb-4">
+      <h3 class="font-bold text-base underline uppercase text-blue-950">KARTU INDUK REKAPITULASI BIAYA PENDIDIKAN</h3>
+      <p class="text-xs text-slate-600">Rekap Gabungan Lintas Semester &amp; Jenjang</p>
+    </div>
+    <table class="w-full text-xs mb-4">
+      <tr><td class="py-1 w-40 font-semibold">Nama Santri</td><td>: <strong>${prof.displayName}</strong></td></tr>
+      <tr><td class="py-1 font-semibold">Unit Pendidikan</td><td>: ${prof.latestUnit}</td></tr>
+      <tr><td class="py-1 font-semibold">Riwayat Kelas / Smt</td><td>: ${prof.sheetSummaries.map((s) => s.sheet).join(' → ')}</td></tr>
+    </table>
+    <table class="w-full text-xs border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
+        <tr>
+          <th class="py-2 px-3 w-12">No</th>
+          <th class="py-2 px-3 text-left">Kelas / Semester</th>
+          <th class="py-2 px-3 text-left">Komponen Biaya / Bulan</th>
+          <th class="py-2 px-3 text-right">Nominal Tagihan</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
+        <tr>
+          <td colspan="3" class="py-2 px-3 text-right uppercase">Total Tagihan Gabungan</td>
+          <td class="py-2 px-3 text-right text-sm">${formatRupiah(grandTotal)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
+      <strong>Terbilang:</strong> ${terbilang(grandTotal)}
+    </div>
+    ${getSignatureHTML(today)}
+  `;
+  openModal('modal-print');
+}
+
+// ============================================================================
+// MODUL PEMBAYARAN GABUNGAN LINTAS SEMESTER (SIMPAN KE CLOUD)
+// ============================================================================
+function openBayarGabunganModal() {
+  const normName = document.getElementById('induk-modal-norm-name').value;
+  const prof = buildUnifiedStudentProfiles('DEDUP').find((p) => p.normName === normName);
+  if (!prof) return;
+
+  document.getElementById('bayar-gab-norm-name').value = normName;
+  document.getElementById('bayar-gab-subtitle').textContent = `${prof.displayName} (${prof.sheetSummaries.map((s) => s.sheet).join(' → ')})`;
+  document.getElementById('bayar-gab-tanggal').value = new Date().toISOString().split('T')[0];
+  document.getElementById('bayar-gab-catatan').value = '';
+
+  const container = document.getElementById('bayar-gab-items-list');
+  container.innerHTML = '';
+
+  let hasUnpaid = false;
+  prof.sheetSummaries.forEach((sh) => {
+    if (sh.items.length === 0) return;
+    hasUnpaid = true;
+
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'bg-white border border-blue-100 rounded-xl p-2.5 space-y-1.5';
+    groupDiv.innerHTML = `<div class="text-xs font-bold text-blue-950 border-b border-sky-100 pb-1">${sh.sheet} (${sh.unit})</div>`;
+
+    sh.items.forEach((it) => {
+      const row = document.createElement('div');
+      row.className = `flex items-center justify-between gap-2 p-1.5 rounded ${it.isDuplicate ? 'bg-amber-50/70' : ''}`;
+      row.innerHTML = `
+        <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1">
+          <input type="checkbox" class="bayar-gab-check w-4 h-4 accent-blue-900"
+            data-student-id="${it.studentId}"
+            data-fee-idx="${it.feeIndex}"
+            data-max="${it.amount}"
+            data-dup="${it.isDuplicate ? '1' : '0'}"
+            onchange="toggleBayarGabItem(this)" />
+          <span>
+            ${it.label}
+            <span class="text-slate-400 font-normal">(Sisa: ${formatRupiah(it.amount)})</span>
+            ${it.isDuplicate ? `<span class="ml-1 bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded">${it.duplicateReason}</span>` : ''}
+          </span>
+        </label>
+        <input type="number" class="bayar-gab-amount w-32 border border-slate-300 rounded px-2 py-1 text-xs text-right font-semibold"
+          data-student-id="${it.studentId}"
+          data-fee-idx="${it.feeIndex}"
+          max="${it.amount}" min="0" value="0"
+          oninput="recalcBayarGabTotal()" />
+      `;
+      groupDiv.appendChild(row);
+    });
+
+    container.appendChild(groupDiv);
+  });
+
+  if (!hasUnpaid) {
+    container.innerHTML = '<p class="text-xs text-blue-900 font-semibold text-center py-4">Seluruh tagihan lintas semester santri ini sudah LUNAS!</p>';
+  }
+
+  recalcBayarGabTotal();
+  openModal('modal-bayar-gabungan');
+}
+
+function toggleBayarGabItem(chk) {
+  const sid = chk.getAttribute('data-student-id');
+  const fidx = chk.getAttribute('data-fee-idx');
+  const maxVal = Number(chk.getAttribute('data-max'));
+  const inp = document.querySelector(`.bayar-gab-amount[data-student-id="${sid}"][data-fee-idx="${fidx}"]`);
+  inp.value = chk.checked ? maxVal : 0;
+  recalcBayarGabTotal();
+}
+
+function checkAllBayarGabItems() {
+  document.querySelectorAll('.bayar-gab-check').forEach((chk) => {
+    if (chk.getAttribute('data-dup') === '0') {
+      chk.checked = true;
+      toggleBayarGabItem(chk);
+    }
+  });
+}
+
+function recalcBayarGabTotal() {
+  let sum = 0;
+  document.querySelectorAll('.bayar-gab-amount').forEach((inp) => {
+    sum += Math.max(0, Number(inp.value) || 0);
+  });
+  document.getElementById('bayar-gab-total-preview').textContent = formatRupiah(sum);
+}
+
+async function submitPembayaranGabungan() {
+  const normName = document.getElementById('bayar-gab-norm-name').value;
+  const prof = buildUnifiedStudentProfiles('DEDUP').find((p) => p.normName === normName);
+  if (!prof) return;
+
+  const tanggal = document.getElementById('bayar-gab-tanggal').value || new Date().toISOString().split('T')[0];
+  const metode = document.getElementById('bayar-gab-metode').value;
+  const catatan = document.getElementById('bayar-gab-catatan').value.trim();
+
+  const touchedStudentMap = {};
+  const paidDetails = [];
+  const allSyncedAdjustments = [];
+  let totalPaid = 0;
+  const touchedSheets = new Set();
+
+  document.querySelectorAll('.bayar-gab-amount').forEach((inp) => {
+    const sid = inp.getAttribute('data-student-id');
+    const fidx = Number(inp.getAttribute('data-fee-idx'));
+    const payVal = Math.max(0, Math.round(Number(inp.value) || 0));
+
+    if (payVal > 0) {
+      const origSt = students.find((s) => s.id === sid);
+      if (origSt && origSt.fees[fidx]) {
+        const clone = touchedStudentMap[sid] || JSON.parse(JSON.stringify(origSt));
+        const actualPay = Math.min(payVal, clone.fees[fidx].amount);
+        if (actualPay > 0) {
+          clone.fees[fidx].amount -= actualPay;
+          touchedStudentMap[sid] = clone;
+          totalPaid += actualPay;
+          touchedSheets.add(clone.sheet);
+
+          const syncs = computeLinkedStudentSyncs(clone, clone.fees[fidx].label, actualPay, touchedStudentMap);
+          allSyncedAdjustments.push(...syncs);
+
+          paidDetails.push({
+            studentId: clone.id,
+            feeIndex: fidx,
+            label: `[${clone.sheet}] ${clone.fees[fidx].label}`,
+            paid: actualPay,
+            remaining: clone.fees[fidx].amount
+          });
+        }
+      }
+    }
+  });
+
+  if (totalPaid <= 0) {
+    alert('Pilih atau masukkan nominal pembayaran minimal Rp 1.');
+    return;
+  }
+
+  const noKwitansi = `KWT/ALFIRDAUS/${new Date().getFullYear()}/${String(transactions.length + 1).padStart(4, '0')}`;
+  const txRecord = {
+    id: 'tx-' + Date.now(),
+    noKwitansi,
+    tanggal,
+    studentId: prof.sheetSummaries[prof.sheetSummaries.length - 1].studentId,
+    nama: prof.displayName,
+    sheet: [...touchedSheets].join(' + '),
+    unit: prof.latestUnit,
+    metode,
+    catatan,
+    totalPaid,
+    details: paidDetails,
+    syncedAdjustments: allSyncedAdjustments
+  };
+
+  try {
+    const ops = Object.values(touchedStudentMap).map((stObj) => ({
+      type: 'set',
+      collection: 'students',
+      id: stObj.id,
+      data: stObj
+    }));
+    ops.push({ type: 'set', collection: 'transactions', id: txRecord.id, data: txRecord });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('PAYMENT_COMBINED', `Kwitansi ${noKwitansi} (${prof.displayName}): ${formatRupiah(totalPaid)}`);
+
+    // Simpan ke array lokal seketika agar modal kwitansi bisa langsung ditampilkan bahkan saat offline
+    transactions.unshift(txRecord);
+    closeModal('modal-bayar-gabungan');
+    openPrintKwitansi(txRecord.id);
+  } catch (err) {
+    alert('Gagal menyimpan pembayaran gabungan: ' + err.message);
+  }
+}
+
+// ============================================================================
+// MODUL PEMBAYARAN SATU SHEET & KWITANSI OTOMATIS (SIMPAN KE CLOUD)
+// ============================================================================
+function openBayarModal(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  if (!st) return;
+
+  document.getElementById('bayar-student-id').value = st.id;
+  document.getElementById('bayar-subtitle').textContent = `${st.nama} (${st.sheet} - ${st.unit})`;
+  document.getElementById('bayar-tanggal').value = new Date().toISOString().split('T')[0];
+  document.getElementById('bayar-catatan').value = '';
+
+  const listContainer = document.getElementById('bayar-items-list');
+  listContainer.innerHTML = '';
+
+  const unpaidFees = (st.fees || []).map((f, idx) => ({ ...f, idx })).filter((f) => f.amount > 0);
+
+  if (unpaidFees.length === 0) {
+    listContainer.innerHTML = '<p class="text-xs text-blue-900 font-semibold text-center py-3">Seluruh tagihan santri ini sudah LUNAS!</p>';
+  } else {
+    unpaidFees.forEach((f) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-blue-100';
+      row.innerHTML = `
+        <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1">
+          <input type="checkbox" class="bayar-check w-4 h-4 accent-blue-900" data-idx="${f.idx}" data-max="${f.amount}" onchange="toggleBayarItem(this)" />
+          <span>${f.label} <span class="text-slate-400 font-normal">(Sisa: ${formatRupiah(f.amount)})</span></span>
+        </label>
+        <input type="number" class="bayar-amount w-32 border border-slate-300 rounded px-2 py-1 text-xs text-right font-semibold" data-idx="${f.idx}" max="${f.amount}" min="0" value="0" oninput="recalcBayarTotal()" />
+      `;
+      listContainer.appendChild(row);
+    });
+  }
+
+  recalcBayarTotal();
+  openModal('modal-bayar');
+}
+
+function toggleBayarItem(checkbox) {
+  const idx = checkbox.getAttribute('data-idx');
+  const maxVal = Number(checkbox.getAttribute('data-max'));
+  const input = document.querySelector(`.bayar-amount[data-idx="${idx}"]`);
+  input.value = checkbox.checked ? maxVal : 0;
+  recalcBayarTotal();
+}
+
+function checkAllBayarItems() {
+  document.querySelectorAll('.bayar-check').forEach((chk) => {
+    chk.checked = true;
+    toggleBayarItem(chk);
+  });
+}
+
+function recalcBayarTotal() {
+  let sum = 0;
+  document.querySelectorAll('.bayar-amount').forEach((inp) => {
+    sum += Math.max(0, Number(inp.value) || 0);
+  });
+  document.getElementById('bayar-total-preview').textContent = formatRupiah(sum);
+}
+
+async function submitPembayaran() {
+  const studentId = document.getElementById('bayar-student-id').value;
+  const origSt = students.find((s) => s.id === studentId);
+  if (!origSt) return;
+
+  const tanggal = document.getElementById('bayar-tanggal').value || new Date().toISOString().split('T')[0];
+  const metode = document.getElementById('bayar-metode').value;
+  const catatan = document.getElementById('bayar-catatan').value.trim();
+
+  const touchedStudentMap = {};
+  const cloneSt = JSON.parse(JSON.stringify(origSt));
+  touchedStudentMap[cloneSt.id] = cloneSt;
+
+  const paidDetails = [];
+  const allSyncedAdjustments = [];
+  let totalPaid = 0;
+
+  document.querySelectorAll('.bayar-amount').forEach((inp) => {
+    const idx = Number(inp.getAttribute('data-idx'));
+    const payVal = Math.max(0, Math.round(Number(inp.value) || 0));
+    if (payVal > 0 && cloneSt.fees[idx]) {
+      const actualPay = Math.min(payVal, cloneSt.fees[idx].amount);
+      cloneSt.fees[idx].amount -= actualPay;
+      totalPaid += actualPay;
+
+      const syncs = computeLinkedStudentSyncs(cloneSt, cloneSt.fees[idx].label, actualPay, touchedStudentMap);
+      allSyncedAdjustments.push(...syncs);
+
+      paidDetails.push({
+        studentId: cloneSt.id,
+        feeIndex: idx,
+        label: cloneSt.fees[idx].label,
+        paid: actualPay,
+        remaining: cloneSt.fees[idx].amount
+      });
+    }
+  });
+
+  if (totalPaid <= 0) {
+    alert('Pilih atau masukkan nominal pembayaran minimal Rp 1.');
+    return;
+  }
+
+  const noKwitansi = `KWT/ALFIRDAUS/${new Date().getFullYear()}/${String(transactions.length + 1).padStart(4, '0')}`;
+  const txRecord = {
+    id: 'tx-' + Date.now(),
+    noKwitansi,
+    tanggal,
+    studentId: cloneSt.id,
+    nama: cloneSt.nama,
+    sheet: cloneSt.sheet,
+    unit: cloneSt.unit,
+    metode,
+    catatan,
+    totalPaid,
+    details: paidDetails,
+    syncedAdjustments: allSyncedAdjustments
+  };
+
+  try {
+    const ops = Object.values(touchedStudentMap).map((stObj) => ({
+      type: 'set',
+      collection: 'students',
+      id: stObj.id,
+      data: stObj
+    }));
+    ops.push({ type: 'set', collection: 'transactions', id: txRecord.id, data: txRecord });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('PAYMENT', `Kwitansi ${noKwitansi} (${cloneSt.nama} - ${cloneSt.sheet}): ${formatRupiah(totalPaid)}`);
+
+    transactions.unshift(txRecord);
+    closeModal('modal-bayar');
+    openPrintKwitansi(txRecord.id);
+  } catch (err) {
+    alert('Gagal menyimpan pembayaran: ' + err.message);
+  }
+}
+
+async function cancelTransaction(txId) {
+  const tx = transactions.find((t) => t.id === txId);
+  if (!tx) return;
+
+  if (!confirm(`Batalkan transaksi ${tx.noKwitansi} (${tx.nama} - ${formatRupiah(tx.totalPaid)})?\n\nSaldo tunggakan santri (termasuk sinkronisasi lintas semester) di Cloud akan dikembalikan seperti semula.`)) {
+    return;
+  }
+
+  const touchedStudentMap = {};
+
+  tx.details.forEach((d) => {
+    const targetSid = d.studentId || tx.studentId;
+    const origSt = students.find((s) => s.id === targetSid);
+    if (origSt) {
+      const clone = touchedStudentMap[targetSid] || JSON.parse(JSON.stringify(origSt));
+      const feeObj = (typeof d.feeIndex === 'number' && clone.fees[d.feeIndex])
+        ? clone.fees[d.feeIndex]
+        : clone.fees.find((f) => f.label === d.label);
+      if (feeObj) {
+        feeObj.amount += Number(d.paid) || 0;
+        touchedStudentMap[targetSid] = clone;
+      }
+    }
+  });
+
+  if (Array.isArray(tx.syncedAdjustments)) {
+    tx.syncedAdjustments.forEach((adj) => {
+      const origSt = students.find((s) => s.id === adj.studentId);
+      if (origSt) {
+        const clone = touchedStudentMap[adj.studentId] || JSON.parse(JSON.stringify(origSt));
+        if (clone.fees[adj.feeIndex]) {
+          clone.fees[adj.feeIndex].amount += Number(adj.deducted) || 0;
+          touchedStudentMap[adj.studentId] = clone;
+        }
+      }
+    });
+  }
+
+  try {
+    const ops = Object.values(touchedStudentMap).map((stObj) => ({
+      type: 'set',
+      collection: 'students',
+      id: stObj.id,
+      data: stObj
+    }));
+    ops.push({ type: 'delete', collection: 'transactions', id: tx.id });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('CANCEL_TX', `Membatalkan transaksi ${tx.noKwitansi} (${tx.nama} - ${formatRupiah(tx.totalPaid)})`);
+  } catch (err) {
+    alert('Gagal membatalkan transaksi: ' + err.message);
+  }
+}
+
+function renderRiwayat() {
+  document.getElementById('badge-transaksi').textContent = transactions.length;
+  const tbody = document.getElementById('riwayat-body');
+  tbody.innerHTML = '';
+
+  if (transactions.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">Belum ada transaksi pembayaran yang dicatat.</td></tr>';
+    return;
+  }
+
+  transactions.forEach((tx) => {
+    const detailStr = (tx.details || []).map((d) => `${d.label} (${formatRupiah(d.paid)})`).join(', ');
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-sky-50/60';
+    tr.innerHTML = `
+      <td class="px-4 py-3 font-mono text-xs font-bold text-blue-900">${tx.noKwitansi}</td>
+      <td class="px-4 py-3 text-xs text-slate-600">${tx.tanggal}</td>
+      <td class="px-4 py-3 font-bold text-blue-950">${tx.nama}</td>
+      <td class="px-4 py-3 text-xs"><span class="bg-sky-100 text-blue-950 border border-sky-200 px-2 py-0.5 rounded font-semibold">${tx.sheet}</span></td>
+      <td class="px-4 py-3 text-xs text-slate-600">${detailStr}</td>
+      <td class="px-4 py-3 text-right font-bold text-blue-900">${formatRupiah(tx.totalPaid)}</td>
+      <td class="px-4 py-3 text-center">
+        <div class="flex items-center justify-center gap-1.5">
+          <button onclick="openPrintKwitansi('${tx.id}')" class="bg-slate-800 hover:bg-slate-900 text-white text-xs px-2.5 py-1 rounded" title="Cetak Kwitansi">
+            <i class="fa-solid fa-print"></i>
+          </button>
+          <button onclick="sendKwitansiWA('${tx.id}')" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2.5 py-1 rounded" title="Kirim Bukti Bayar via WA">
+            <i class="fa-brands fa-whatsapp"></i>
+          </button>
+          <button onclick="cancelTransaction('${tx.id}')" class="bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs px-2 py-1 rounded" title="Batalkan / Koreksi Transaksi">
+            <i class="fa-solid fa-rotate-left"></i>
+          </button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ============================================================================
+// KIRIM WHATSAPP KE ORANG TUA / WALI SANTRI
+// ============================================================================
+function openWAModal(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  if (!st) return;
+
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+  const { total, activeItems } = getStudentArrears(st, cutoffFilter);
+  const periodeText = cutoffFilter === 'ALL' ? 'Tahun Pelajaran ' + st.tahunAjaran : `s.d. Bulan ${cutoffFilter} (${st.tahunAjaran})`;
+
+  let rincianText = activeItems.length > 0
+    ? activeItems.map((it, idx) => `${idx + 1}. ${it.label}: ${formatRupiah(it.amount)}`).join('\n')
+    : '- Alhamdulillah, tidak ada tunggakan (LUNAS)';
+
+  const msg = `Assalamu'alaikum Warahmatullahi Wabarakatuh.
+Yth. Bapak/Ibu Orang Tua/Wali Santri dari:
+
+*Nama Santri* : ${st.nama}
+*Kelas / Unit* : ${st.sheet} (${st.unit})
+*Periode* : ${periodeText}
+
+Berikut kami sampaikan informasi administrasi biaya pendidikan Ponpes SIT Al Firdaus:
+
+*Rincian Tagihan:*
+${rincianText}
+
+*TOTAL TAGIHAN : ${formatRupiah(total)}*
+
+Mohon konfirmasi bukti transfer apabila Bapak/Ibu telah melakukan pembayaran. Atas perhatian dan kerja samanya kami ucapkan Jazakumullahu Khairan Katsiran.
+
+Hormat kami,
+*Bendahara Ponpes SIT Al Firdaus*
+*Restasari, S.Sos*`;
+
+  document.getElementById('wa-phone').value = st.wa || '';
+  document.getElementById('wa-message').value = msg;
+  openModal('modal-wa');
+}
+
+function sendKwitansiWA(txId) {
+  const tx = transactions.find((t) => t.id === txId);
+  if (!tx) return;
+  const normName = normalizeStudentName(tx.nama);
+  const prof = buildUnifiedStudentProfiles('DEDUP').find((p) => p.normName === normName);
+  const sisaGabungan = prof ? prof.cleanTotal : 0;
+
+  const rincian = (tx.details || []).map((d, i) => `${i + 1}. ${d.label}: ${formatRupiah(d.paid)}`).join('\n');
+  const msg = `Assalamu'alaikum Warahmatullahi Wabarakatuh.
+*BUKTI PEMBAYARAN BIAYA PENDIDIKAN*
+*PONPES SIT AL FIRDAUS*
+
+No. Kwitansi : ${tx.noKwitansi}
+Tanggal : ${tx.tanggal}
+Nama Santri : *${tx.nama}*
+Kelas / Unit : ${tx.sheet} (${tx.unit})
+Metode : ${tx.metode}
+
+*Rincian Pembayaran:*
+${rincian}
+
+*TOTAL DIBAYAR : ${formatRupiah(tx.totalPaid)}*
+Sisa Tagihan Keseluruhan : ${formatRupiah(sisaGabungan)}
+
+Terima kasih atas pembayarannya. Jazakumullahu Khairan Katsiran.
+
+Bendahara Ponpes SIT Al Firdaus,
+*Restasari, S.Sos*`;
+
+  document.getElementById('wa-phone').value = prof ? prof.wa : '';
+  document.getElementById('wa-message').value = msg;
+  openModal('modal-wa');
+}
+
+function copyWAMessage() {
+  const text = document.getElementById('wa-message').value;
+  navigator.clipboard.writeText(text);
+  alert('Teks pesan WhatsApp berhasil disalin!');
+}
+
+function sendWANow() {
+  let phone = document.getElementById('wa-phone').value.replace(/[^\d]/g, '');
+  if (phone.startsWith('0')) phone = '62' + phone.slice(1);
+  const text = encodeURIComponent(document.getElementById('wa-message').value);
+  const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+  window.open(url, '_blank');
+}
+
+// ============================================================================
+// CETAK / SAVE PDF SURAT TAGIHAN & KWITANSI RESMI (DENGAN LOGO RESMI)
+// ============================================================================
+function getKopSuratHTML() {
+  return `
+    <div class="border-b-4 border-double border-blue-950 pb-3 mb-4 flex items-center justify-center gap-4">
+      <img
+        src="https://lh3.googleusercontent.com/d/1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_"
+        onerror="handleLogoFallback(this)"
+        alt="Logo Ponpes SIT Al Firdaus"
+        class="w-16 h-16 object-contain shrink-0"
+      />
+      <div class="text-center">
+        <p class="text-[11px] font-semibold tracking-widest uppercase text-sky-700">Yayasan Pendidikan Islam Terpadu</p>
+        <h2 class="text-xl font-extrabold tracking-wide text-blue-950">PONPES SIT AL FIRDAUS BANDARLAMPUNG</h2>
+        <p class="text-xs font-semibold text-slate-700">UNIT SMPIT AL FIRDAUS &bull; UNIT SMAIT AL FIRDAUS</p>
+        <p class="text-[11px] text-slate-500 mt-0.5">Administrasi Keuangan &amp; Tata Usaha Bendahara</p>
+      </div>
+    </div>
+  `;
+}
+
+function getSignatureHTML(tanggalStr) {
+  return `
+    <div class="mt-8 flex justify-end">
+      <div class="text-center text-xs w-56">
+        <p>Bandarlampung, ${tanggalStr}</p>
+        <p class="font-semibold mt-0.5 text-blue-950">Bendahara Ponpes SIT Al Firdaus,</p>
+        <div class="h-16 flex items-center justify-center text-slate-300 italic text-[10px]">
+          (Cap &amp; Tanda Tangan Resmi)
+        </div>
+        <p class="font-bold underline text-blue-950 text-sm">Restasari, S.Sos</p>
+      </div>
+    </div>
+  `;
+}
+
+function openPrintTagihan(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  if (!st) return;
+
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+  const { total, activeItems } = getStudentArrears(st, cutoffFilter);
+  const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const rowsHtml = activeItems.length > 0
+    ? activeItems.map((it, i) => `
+        <tr class="border-b border-slate-200">
+          <td class="py-2 px-3 text-center">${i + 1}</td>
+          <td class="py-2 px-3">${it.label}</td>
+          <td class="py-2 px-3 text-right font-semibold">${formatRupiah(it.amount)}</td>
+        </tr>`).join('')
+    : `<tr><td colspan="3" class="py-4 text-center text-blue-900 font-semibold">Alhamdulillah, Tidak Ada Tunggakan (LUNAS)</td></tr>`;
+
+  document.getElementById('print-area').innerHTML = `
+    ${getKopSuratHTML()}
+    <div class="text-center mb-4">
+      <h3 class="font-bold text-base underline uppercase text-blue-950">SURAT PEMBERITAHUAN RINCIAN BIAYA PENDIDIKAN</h3>
+      <p class="text-xs text-slate-600">Periode: ${cutoffFilter === 'ALL' ? 'Tahun Pelajaran ' + st.tahunAjaran : 's.d. Bulan ' + cutoffFilter + ' (' + st.tahunAjaran + ')'}</p>
+    </div>
+    <table class="w-full text-xs mb-4">
+      <tr><td class="py-1 w-36 font-semibold">Nama Santri</td><td>: <strong>${st.nama}</strong></td></tr>
+      <tr><td class="py-1 font-semibold">Kelas / Unit</td><td>: ${st.sheet} (${st.unit})</td></tr>
+      <tr><td class="py-1 font-semibold">Tarif SPP Dasar</td><td>: ${formatRupiah(st.sppDasar)} / bulan</td></tr>
+    </table>
+    <table class="w-full text-xs border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
+        <tr>
+          <th class="py-2 px-3 w-12">No</th>
+          <th class="py-2 px-3 text-left">Komponen Biaya / Bulan</th>
+          <th class="py-2 px-3 text-right">Nominal Tagihan</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
+        <tr>
+          <td colspan="2" class="py-2 px-3 text-right uppercase">Total Tagihan</td>
+          <td class="py-2 px-3 text-right text-sm">${formatRupiah(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
+      <strong>Terbilang:</strong> ${terbilang(total)}
+    </div>
+    ${getSignatureHTML(today)}
+  `;
+  openModal('modal-print');
+}
+
+function openPrintKwitansi(txId) {
+  const tx = transactions.find((t) => t.id === txId);
+  if (!tx) return;
+
+  const rowsHtml = (tx.details || []).map((d, i) => `
+    <tr class="border-b border-slate-200">
+      <td class="py-2 px-3 text-center">${i + 1}</td>
+      <td class="py-2 px-3">${d.label}</td>
+      <td class="py-2 px-3 text-right font-semibold">${formatRupiah(d.paid)}</td>
+      <td class="py-2 px-3 text-right text-slate-500">${formatRupiah(d.remaining)}</td>
+    </tr>`).join('');
+
+  document.getElementById('print-area').innerHTML = `
+    ${getKopSuratHTML()}
+    <div class="flex justify-between items-center mb-4">
+      <div>
+        <h3 class="font-bold text-base underline uppercase text-blue-950">KWITANSI PEMBAYARAN RESMI</h3>
+        <p class="text-xs font-mono text-slate-600">No: ${tx.noKwitansi}</p>
+      </div>
+      <div class="text-right text-xs">
+        <span class="bg-sky-100 text-blue-950 font-bold px-3 py-1 rounded border border-sky-300">SAH / DITERIMA</span>
+      </div>
+    </div>
+    <table class="w-full text-xs mb-4">
+      <tr><td class="py-1 w-36 font-semibold">Telah Terima Dari</td><td>: Orang Tua / Wali Santri <strong>${tx.nama}</strong></td></tr>
+      <tr><td class="py-1 font-semibold">Kelas / Unit</td><td>: ${tx.sheet} (${tx.unit})</td></tr>
+      <tr><td class="py-1 font-semibold">Metode Bayar</td><td>: ${tx.metode} ${tx.catatan ? '(' + tx.catatan + ')' : ''}</td></tr>
+    </table>
+    <table class="w-full text-xs border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
+        <tr>
+          <th class="py-2 px-3 w-12">No</th>
+          <th class="py-2 px-3 text-left">Uraian Pembayaran</th>
+          <th class="py-2 px-3 text-right">Jumlah Dibayar</th>
+          <th class="py-2 px-3 text-right">Sisa Pos</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
+        <tr>
+          <td colspan="2" class="py-2 px-3 text-right uppercase">Total Diterima</td>
+          <td class="py-2 px-3 text-right text-sm text-blue-950">${formatRupiah(tx.totalPaid)}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
+      <strong>Terbilang:</strong> ${terbilang(tx.totalPaid)}
+    </div>
+    ${getSignatureHTML(tx.tanggal)}
+  `;
+  openModal('modal-print');
+}
+
+function printRekapSummary() {
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+  const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  const rekapRowsHtml = document.getElementById('rekap-body').innerHTML;
+  const rekapFootHtml = document.getElementById('rekap-foot').innerHTML;
+
+  document.getElementById('print-area').innerHTML = `
+    ${getKopSuratHTML()}
+    <div class="text-center mb-4">
+      <h3 class="font-bold text-base underline uppercase text-blue-950">LAPORAN REKAPITULASI TUNGGAKAN BIAYA PENDIDIKAN</h3>
+      <p class="text-xs text-slate-600">Periode Cut-off: ${cutoffFilter === 'ALL' ? 'Semua Bulan' : 's.d. Bulan ' + cutoffFilter}</p>
+    </div>
+    <table class="w-full text-xs border border-blue-200">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
+        <tr>
+          <th class="px-3 py-2">No</th>
+          <th class="px-3 py-2 text-left">Kelas / Sheet</th>
+          <th class="px-3 py-2 text-left">Unit</th>
+          <th class="px-3 py-2 text-left">Semester</th>
+          <th class="px-3 py-2">Jml Santri</th>
+          <th class="px-3 py-2">Lunas</th>
+          <th class="px-3 py-2">Menunggak</th>
+          <th class="px-3 py-2 text-right">Total Tunggakan</th>
+        </tr>
+      </thead>
+      <tbody>${rekapRowsHtml}</tbody>
+      <tfoot>${rekapFootHtml}</tfoot>
+    </table>
+    ${getSignatureHTML(today)}
+  `;
+  openModal('modal-print');
+}
+
+// ============================================================================
+// TAMBAH, EDIT, HAPUS SANTRI & BUAT KELAS / SEMESTER BARU (CLOUD FIRESTORE)
+// ============================================================================
+function openAddStudentModal() {
+  const currentSheetFilter = document.getElementById('filter-sheet').value;
+  document.getElementById('edit-modal-title').textContent = 'Tambah Data Santri Baru';
+  document.getElementById('edit-student-id').value = '';
+  document.getElementById('edit-nama').value = '';
+  document.getElementById('edit-wa').value = '';
+  document.getElementById('edit-sheet').value = currentSheetFilter !== 'ALL' ? currentSheetFilter : '7 smt 1';
+  document.getElementById('edit-spp').value = 850000;
+  document.getElementById('btn-delete-student').classList.add('hidden');
+
+  const isSmt2 = detectSheetSemester(document.getElementById('edit-sheet').value) === 'SMT2';
+  applyFeeTemplate(isSmt2 ? 'SMT2' : 'SMT1');
+  openModal('modal-edit');
+}
+
+function openEditModal(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  if (!st) return;
+
+  document.getElementById('edit-modal-title').textContent = `Edit Data: ${st.nama}`;
+  document.getElementById('edit-student-id').value = st.id;
+  document.getElementById('edit-nama').value = st.nama;
+  document.getElementById('edit-wa').value = st.wa || '';
+  document.getElementById('edit-sheet').value = st.sheet;
+  document.getElementById('edit-spp').value = st.sppDasar;
+  document.getElementById('btn-delete-student').classList.remove('hidden');
+
+  const container = document.getElementById('edit-fees-container');
+  container.innerHTML = '';
+  (st.fees || []).forEach((f) => addEditFeeRow(f.label, f.amount));
+  openModal('modal-edit');
+}
+
+function applyFeeTemplate(type) {
+  const sppVal = parseNumericCell(document.getElementById('edit-spp').value);
+  const container = document.getElementById('edit-fees-container');
+  container.innerHTML = '';
+
+  if (type === 'SMT1') {
+    addEditFeeRow('U. Pangkal', 0);
+    ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].forEach((m) => {
+      addEditFeeRow(m, sppVal);
+    });
+  } else if (type === 'SMT2') {
+    addEditFeeRow('smt 1 + U. Pangkal', 0);
+    ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni'].forEach((m) => {
+      addEditFeeRow(m, sppVal);
+    });
+  }
+}
+
+function addEditFeeRow(label = '', amount = 0) {
+  const container = document.getElementById('edit-fees-container');
+  const div = document.createElement('div');
+  div.className = 'flex items-center gap-2 edit-fee-row';
+  div.innerHTML = `
+    <input type="text" placeholder="Nama Pos (misal: Oktober / Daftar Ulang)" value="${label}" class="fee-label flex-1 border border-slate-300 rounded px-2.5 py-1.5 text-xs" />
+    <input type="number" placeholder="Nominal (Rp)" value="${amount}" class="fee-val w-36 border border-slate-300 rounded px-2.5 py-1.5 text-xs text-right" />
+    <button type="button" onclick="this.parentElement.remove()" class="text-rose-500 hover:text-rose-700 px-2"><i class="fa-solid fa-trash"></i></button>
+  `;
+  container.appendChild(div);
+}
+
+async function saveStudentEdit() {
+  const id = document.getElementById('edit-student-id').value;
+  const nama = document.getElementById('edit-nama').value.trim();
+  const wa = document.getElementById('edit-wa').value.trim();
+  const sheet = document.getElementById('edit-sheet').value.trim() || 'Umum';
+  const sppDasar = parseNumericCell(document.getElementById('edit-spp').value);
+
+  if (!nama) {
+    alert('Nama santri wajib diisi.');
+    return;
+  }
+
+  const fees = [];
+  document.querySelectorAll('.edit-fee-row').forEach((row) => {
+    const lbl = row.querySelector('.fee-label').value.trim();
+    const val = parseNumericCell(row.querySelector('.fee-val').value);
+    if (lbl) {
+      const mKey = detectMonthKey(lbl);
+      fees.push({ label: lbl, amount: val, type: mKey ? 'monthly' : 'fixed', monthKey: mKey });
+    }
+  });
+
+  const targetId = id || 'st-' + Date.now();
+  const existing = id ? students.find((s) => s.id === id) : null;
+  const updatedStudent = {
+    id: targetId,
+    sheet,
+    unit: inferUnitFromSheet(sheet),
+    tahunAjaran: existing ? (existing.tahunAjaran || '2026-2027') : '2026-2027',
+    nama,
+    wa,
+    sppDasar,
+    fees
+  };
+
+  const ops = [{ type: 'set', collection: 'students', id: targetId, data: updatedStudent }];
+
+  // Sinkronkan nomor WA ke semua record santri bernama sama
+  if (wa) {
+    const norm = normalizeStudentName(nama);
+    students.forEach((s) => {
+      if (s.id !== targetId && normalizeStudentName(s.nama) === norm && s.wa !== wa) {
+        ops.push({ type: 'set', collection: 'students', id: s.id, data: { ...s, wa } });
+      }
+    });
+  }
+
+  try {
+    await commitFirestoreOps(ops);
+    await logAuditAction(id ? 'EDIT_STUDENT' : 'ADD_STUDENT', `${id ? 'Mengubah' : 'Menambah'} data ${nama} (${sheet})`);
+    closeModal('modal-edit');
+  } catch (err) {
+    alert('Gagal menyimpan data santri ke Cloud: ' + err.message);
+  }
+}
+
+async function deleteCurrentStudent() {
+  const id = document.getElementById('edit-student-id').value;
+  const st = students.find((s) => s.id === id);
+  if (!st) return;
+
+  if (!confirm(`Yakin ingin menghapus data santri "${st.nama}" (${st.sheet}) dari Cloud Firestore secara permanen?`)) return;
+
+  try {
+    await commitFirestoreOps([{ type: 'delete', collection: 'students', id: st.id }]);
+    await logAuditAction('DELETE_STUDENT', `Menghapus data ${st.nama} (${st.sheet})`);
+    closeModal('modal-edit');
+  } catch (err) {
+    alert('Gagal menghapus data santri: ' + err.message);
+  }
+}
+
+// ============================================================================
+// BUAT KELAS / SEMESTER BARU (MIGRASI MASSAL ANTAR SEMESTER DI CLOUD)
+// ============================================================================
+function openNewClassModal() {
+  document.getElementById('newclass-name').value = '';
+  const sourceSelect = document.getElementById('newclass-source');
+  const uniqueSheets = [...new Set(students.map((s) => s.sheet))];
+
+  sourceSelect.innerHTML = '<option value="">-- Buat Kelas Kosong (Tambah Santri Manual Nanti) --</option>';
+  uniqueSheets.forEach((sh) => {
+    const count = students.filter((s) => s.sheet === sh).length;
+    const opt = document.createElement('option');
+    opt.value = sh;
+    opt.textContent = `Salin dari: ${sh} (${count} santri)`;
+    sourceSelect.appendChild(opt);
+  });
+
+  document.getElementById('newclass-migration-options').classList.add('hidden');
+  openModal('modal-new-class');
+}
+
+async function createNewClass() {
+  const newSheetName = document.getElementById('newclass-name').value.trim();
+  const sourceSheet = document.getElementById('newclass-source').value;
+
+  if (!newSheetName) {
+    alert('Nama Kelas / Sheet baru wajib diisi (contoh: 10 smt 2).');
+    return;
+  }
+
+  const alreadyExists = students.some((s) => s.sheet.toLowerCase() === newSheetName.toLowerCase());
+  if (alreadyExists) {
+    alert(`Kelas / Sheet "${newSheetName}" sudah ada. Gunakan nama lain.`);
+    return;
+  }
+
+  const newDocs = [];
+
+  if (!sourceSheet) {
+    const isSmt2 = detectSheetSemester(newSheetName) === 'SMT2';
+    const months = isSmt2
+      ? ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni']
+      : ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+    newDocs.push({
+      id: 'st-' + Date.now(),
+      sheet: newSheetName,
+      unit: inferUnitFromSheet(newSheetName),
+      tahunAjaran: '2026-2027',
+      nama: 'Santri Baru (' + newSheetName + ')',
+      wa: '',
+      sppDasar: 850000,
+      fees: [
+        { label: isSmt2 ? 'smt 1 + U. Pangkal' : 'U. Pangkal', amount: 0, type: 'fixed', monthKey: null },
+        ...months.map((m) => ({ label: m, amount: 0, type: 'monthly', monthKey: m.toLowerCase() }))
+      ]
+    });
+  } else {
+    const carryArrears = document.getElementById('newclass-carry-arrears').checked;
+    const monthsMode = document.getElementById('newclass-months').value;
+    const sourceStudents = students.filter((s) => s.sheet === sourceSheet);
+
+    sourceStudents.forEach((src, i) => {
+      const { total: prevArrears } = getStudentArrears(src, 'ALL');
+      const newFees = [];
+
+      if (carryArrears) {
+        newFees.push({
+          label: `Sisa ${sourceSheet}`,
+          amount: prevArrears,
+          type: 'fixed',
+          monthKey: null
+        });
+      }
+
+      if (monthsMode === 'SMT2') {
+        ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni'].forEach((m) => {
+          newFees.push({ label: m, amount: src.sppDasar, type: 'monthly', monthKey: m.toLowerCase() });
+        });
+      } else if (monthsMode === 'SMT1') {
+        ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].forEach((m) => {
+          newFees.push({ label: m, amount: src.sppDasar, type: 'monthly', monthKey: m.toLowerCase() });
+        });
+      }
+
+      newDocs.push({
+        id: `st-${Date.now()}-${i}`,
+        sheet: newSheetName,
+        unit: inferUnitFromSheet(newSheetName),
+        tahunAjaran: src.tahunAjaran || '2026-2027',
+        nama: src.nama,
+        wa: src.wa || '',
+        sppDasar: src.sppDasar,
+        fees: newFees
+      });
+    });
+  }
+
+  try {
+    const ops = newDocs.map((d) => ({ type: 'set', collection: 'students', id: d.id, data: d }));
+    await commitFirestoreOps(ops);
+    await logAuditAction('CREATE_CLASS', `Membuat kelas ${newSheetName} (${newDocs.length} santri)`);
+
+    document.getElementById('filter-unit').value = 'ALL';
+    document.getElementById('filter-semester').value = 'ALL';
+    document.getElementById('filter-cutoff').value = 'ALL';
+    closeModal('modal-new-class');
+    alert(`Kelas / Semester "${newSheetName}" berhasil dibuat di Cloud dan terhubung ke Kartu Induk Santri!`);
+  } catch (err) {
+    alert('Gagal membuat kelas baru: ' + err.message);
+  }
+}
+
+// ============================================================================
+// EXPORT REKAP EXCEL, UNDUH JSON & RESTORE JSON KE CLOUD
+// ============================================================================
+function exportToExcel() {
+  const unitFilter = document.getElementById('filter-unit').value;
+  const smtFilter = document.getElementById('filter-semester').value;
+  const sheetFilter = document.getElementById('filter-sheet').value;
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+
+  const wb = XLSX.utils.book_new();
+
+  const targetStudents = students.filter((st) => {
+    if (unitFilter !== 'ALL' && detectSheetCategory(st.sheet) !== unitFilter) return false;
+    if (smtFilter !== 'ALL' && detectSheetSemester(st.sheet) !== smtFilter) return false;
+    if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return false;
+    return true;
+  });
+
+  // Sheet 1: Ringkasan per Kelas / Semester
+  const grouped = {};
+  targetStudents.forEach((st) => {
+    if (!grouped[st.sheet]) {
+      grouped[st.sheet] = {
+        'Kelas / Sheet': st.sheet,
+        Unit: st.unit,
+        Semester: getSemesterLabel(detectSheetSemester(st.sheet)),
+        'Jumlah Santri': 0,
+        'Santri Lunas': 0,
+        'Santri Menunggak': 0,
+        'Total Nominal Tunggakan': 0
+      };
+    }
+    const { total } = getStudentArrears(st, cutoffFilter);
+    grouped[st.sheet]['Jumlah Santri']++;
+    if (total === 0) grouped[st.sheet]['Santri Lunas']++;
+    else grouped[st.sheet]['Santri Menunggak']++;
+    grouped[st.sheet]['Total Nominal Tunggakan'] += total;
+  });
+  const wsSummary = XLSX.utils.json_to_sheet(Object.values(grouped));
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan per Kelas');
+
+  // Sheet 2: Kartu Induk Gabungan Lintas Semester (Anti-Ganda)
+  const unifiedProfiles = buildUnifiedStudentProfiles('DEDUP');
+  const indukRows = unifiedProfiles.map((p, idx) => ({
+    No: idx + 1,
+    'Nama Santri': p.displayName,
+    'Unit Terakhir': p.latestUnit,
+    'No WA Wali': p.wa || '-',
+    'Riwayat Kelas / Semester': p.sheetSummaries.map((s) => s.sheet).join(' -> '),
+    'Rincian per Semester': p.sheetSummaries.map((s) => `${s.sheet}: ${s.cleanSum}`).join('; '),
+    'Total Tunggakan Bersih Gabungan': p.cleanTotal,
+    Status: p.cleanTotal === 0 ? 'LUNAS' : 'MENUNGGAK'
+  }));
+  const wsInduk = XLSX.utils.json_to_sheet(indukRows);
+  XLSX.utils.book_append_sheet(wb, wsInduk, 'Kartu Induk Lintas Smt');
+
+  // Sheet 3: Rincian per Santri (Per Baris Sheet)
+  const allRows = targetStudents.map((st, idx) => {
+    const { total, activeItems } = getStudentArrears(st, cutoffFilter);
+    return {
+      No: idx + 1,
+      'Nama Santri': st.nama,
+      'Kelas / Sheet': st.sheet,
+      Unit: st.unit,
+      Semester: getSemesterLabel(detectSheetSemester(st.sheet)),
+      'No WA Wali': st.wa || '-',
+      'SPP Dasar': st.sppDasar,
+      'Rincian Tunggakan': activeItems.map((i) => `${i.label}: ${i.amount}`).join('; ') || 'LUNAS',
+      [`Total Tunggakan (${cutoffFilter === 'ALL' ? 'Semua Bulan' : 's.d ' + cutoffFilter})`]: total,
+      Status: total === 0 ? 'LUNAS' : 'MENUNGGAK'
+    };
+  });
+  const wsAll = XLSX.utils.json_to_sheet(allRows);
+  XLSX.utils.book_append_sheet(wb, wsAll, 'Rincian per Sheet');
+
+  // Sheet 4: Riwayat Pembayaran
+  if (transactions.length > 0) {
+    const txRows = transactions.map((t) => ({
+      'No Kwitansi': t.noKwitansi,
+      Tanggal: t.tanggal,
+      'Nama Santri': t.nama,
+      Kelas: t.sheet,
+      Metode: t.metode,
+      Rincian: (t.details || []).map((d) => `${d.label}: ${d.paid}`).join('; '),
+      'Total Dibayar': t.totalPaid
+    }));
+    const wsTx = XLSX.utils.json_to_sheet(txRows);
+    XLSX.utils.book_append_sheet(wb, wsTx, 'Riwayat Pembayaran');
+  }
+
+  const fileName = `Rekap_Keuangan_AlFirdaus_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+}
+
+function backupJSON() {
+  const payload = {
+    instansi: 'Ponpes SIT Al Firdaus Bandarlampung',
+    bendahara: 'Restasari, S.Sos',
+    exportedAt: new Date().toISOString(),
+    students,
+    transactions
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Backup_Cloud_AlFirdaus_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function handleJSONRestore(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function (e) {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (Array.isArray(parsed.students)) {
+        const restoredTx = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+        if (!confirm(`Pulihkan ${parsed.students.length} data santri dan ${restoredTx.length} transaksi dari file JSON ke Cloud Firestore?`)) {
+          return;
+        }
+
+        const ops = [];
+        const newStIds = new Set(parsed.students.map((s) => s.id));
+        students.forEach((oldSt) => {
+          if (!newStIds.has(oldSt.id)) {
+            ops.push({ type: 'delete', collection: 'students', id: oldSt.id });
+          }
+        });
+        parsed.students.forEach((st) => {
+          ops.push({ type: 'set', collection: 'students', id: st.id, data: st });
+        });
+        restoredTx.forEach((tx) => {
+          ops.push({ type: 'set', collection: 'transactions', id: tx.id, data: tx });
+        });
+
+        await commitFirestoreOps(ops);
+        await logAuditAction('RESTORE_JSON', `Restore ${parsed.students.length} santri & ${restoredTx.length} transaksi dari file JSON`);
+        alert('Data berhasil dipulihkan & disinkronkan ke Cloud Firestore!');
+      } else {
+        alert('Format file JSON tidak valid.');
+      }
+    } catch (err) {
+      alert('Gagal memulihkan file JSON: ' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// ============================================================================
+// NAVIGASI TAB & MODAL
+// ============================================================================
+function switchTab(tabName) {
+  ['tagihan', 'induk', 'rekap', 'riwayat'].forEach((name) => {
+    document.getElementById(`view-${name}`).classList.toggle('hidden', name !== tabName);
+    const btn = document.getElementById(`tab-${name}`);
+    if (name === tabName) {
+      btn.className = 'tab-btn btn-brand-primary px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition';
+    } else {
+      btn.className = 'tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition';
+    }
+  });
+
+  const showGlobalFilter = tabName === 'tagihan' || tabName === 'rekap';
+  document.getElementById('global-filter-bar').classList.toggle('hidden', !showGlobalFilter);
+}
+
+function openModal(id) {
+  const el = document.getElementById(id);
+  el.classList.remove('hidden');
+  el.classList.add('flex');
+}
+
+function closeModal(id) {
+  const el = document.getElementById(id);
+  el.classList.add('hidden');
+  el.classList.remove('flex');
+}
+
+// ============================================================================
+// DAFTARKAN FUNGSI KE GLOBAL WINDOW AGAR TERPANGGIL DARI ATRIBUT HTML
+// ============================================================================
+Object.assign(window, {
+  handleLogoFallback,
+  handleLogin,
+  logoutBendahara,
+  togglePasswordVisibility,
+  openResetPasswordPrompt,
+  openAccountModal,
+  saveAccountCredentials,
+  migrateLocalToFirestore,
+  seedInitialSampleToFirestore,
+  switchTab,
+  onUnitOrSemesterChange,
+  resetFilters,
+  renderTable,
+  renderIndukTab,
+  openIndukDetailModal,
+  refreshIndukDetailModal,
+  saveIndukWA,
+  openWAInduk,
+  openPrintInduk,
+  openBayarGabunganModal,
+  toggleBayarGabItem,
+  checkAllBayarGabItems,
+  recalcBayarGabTotal,
+  submitPembayaranGabungan,
+  openBayarModal,
+  toggleBayarItem,
+  checkAllBayarItems,
+  recalcBayarTotal,
+  submitPembayaran,
+  cancelTransaction,
+  openWAModal,
+  sendKwitansiWA,
+  copyWAMessage,
+  sendWANow,
+  openPrintTagihan,
+  openPrintKwitansi,
+  printRekapSummary,
+  openAddStudentModal,
+  openEditModal,
+  applyFeeTemplate,
+  addEditFeeRow,
+  saveStudentEdit,
+  deleteCurrentStudent,
+  openNewClassModal,
+  createNewClass,
+  exportToExcel,
+  backupJSON,
+  openModal,
+  closeModal
 });
