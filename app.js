@@ -1,15 +1,57 @@
 // ============================================================================
-// SISTEM PENCATATAN & REKAPITULASI BIAYA PENDIDIKAN
+// SISTEM PENCATATAN & REKAPITULASI BIAYA PENDIDIKAN (CLOUD FIREBASE EDITION)
 // INSTANSI : PONPES SIT AL FIRDAUS BANDARLAMPUNG (SMPIT / SMAIT AL FIRDAUS)
 // BENDAHARA: RESTASARI, S.Sos
-// TEMA     : BIRU DARK & BIRU LIGHT
 // ============================================================================
 
-const STORAGE_KEY_STUDENTS = 'alfirdaus_students_v1';
-const STORAGE_KEY_TX = 'alfirdaus_transactions_v1';
-const STORAGE_KEY_AUTH = 'alfirdaus_bendahara_auth_v1';
-const STORAGE_KEY_SESSION = 'alfirdaus_bendahara_session_v1';
-const STORAGE_KEY_OLD_THEME = 'alfirdaus_logo_theme_v1';
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  sendPasswordResetEmail,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential
+} from "https://www.gstatic.com/firebasejs/13.3.0/firebase-auth.js";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  collection,
+  doc,
+  onSnapshot,
+  writeBatch,
+  addDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/13.3.0/firebase-firestore.js";
+
+// Konfigurasi Proyek Firebase: keuangan-alfirdaus
+const firebaseConfig = {
+  apiKey: "AIzaSyC4sTKd_Pp3W4ncXolZud5GhjK5O-GCgvE",
+  authDomain: "keuangan-alfirdaus.firebaseapp.com",
+  projectId: "keuangan-alfirdaus",
+  storageBucket: "keuangan-alfirdaus.firebasestorage.app",
+  messagingSenderId: "797090689943",
+  appId: "1:797090689943:web:17852a2c6fc9960f5bcad2"
+};
+
+// Inisialisasi Firebase, Auth, dan Firestore dengan Cache Offline Multi-Tab
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
+// Kunci penyimpanan lokal lama (untuk fitur migrasi 1-klik ke Cloud)
+const LEGACY_STORAGE_STUDENTS = 'alfirdaus_students_v1';
+const LEGACY_STORAGE_TX = 'alfirdaus_transactions_v1';
 
 // Link resmi logo Google Drive Ponpes SIT Al Firdaus Bandarlampung
 const DRIVE_FILE_ID = '1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_';
@@ -19,11 +61,6 @@ const LOGO_URLS = [
   `https://drive.google.com/uc?export=view&id=${DRIVE_FILE_ID}`
 ];
 
-// Kredensial Default Bendahara (Password disimpan terenkripsi SHA-256)
-const DEFAULT_USERNAME = 'bendahara';
-const DEFAULT_PASSWORD_PLAINTEXT = 'alfirdaus2026';
-const INSTITUTION_RECOVERY_PIN = '1652026';
-
 const MONTH_ORDER = [
   'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
   'januari', 'februari', 'maret', 'april', 'mei', 'juni'
@@ -31,8 +68,11 @@ const MONTH_ORDER = [
 
 let students = [];
 let transactions = [];
+let unsubStudents = null;
+let unsubTransactions = null;
+let uiListenersAttached = false;
 
-// Data awal contoh (mencakup santri lintas semester agar fitur Kartu Induk langsung terlihat)
+// Data contoh awal (opsional jika database masih kosong)
 const INITIAL_SAMPLE_DATA = [
   {
     id: 'st-1',
@@ -105,46 +145,6 @@ const INITIAL_SAMPLE_DATA = [
       { label: 'November', amount: 750000, type: 'monthly', monthKey: 'november' },
       { label: 'Desember', amount: 750000, type: 'monthly', monthKey: 'desember' }
     ]
-  },
-  {
-    id: 'st-4',
-    sheet: 'KELAS 10',
-    unit: 'SMAIT Al Firdaus',
-    tahunAjaran: '2026-2027',
-    nama: 'Amalia Ayu Pertiwi',
-    wa: '',
-    sppDasar: 900000,
-    fees: [
-      { label: 'U. Pangkal', amount: 0, type: 'fixed', monthKey: null },
-      { label: 'Juli', amount: 0, type: 'monthly', monthKey: 'juli' },
-      { label: 'Agustus', amount: 0, type: 'monthly', monthKey: 'agustus' },
-      { label: 'September', amount: 0, type: 'monthly', monthKey: 'september' },
-      { label: 'Oktober', amount: 0, type: 'monthly', monthKey: 'oktober' },
-      { label: 'November', amount: 0, type: 'monthly', monthKey: 'november' },
-      { label: 'Desember', amount: 0, type: 'monthly', monthKey: 'desember' }
-    ]
-  },
-  {
-    id: 'st-5',
-    sheet: '12 smt 1',
-    unit: 'SMAIT Al Firdaus',
-    tahunAjaran: '2026-2027',
-    nama: 'Cahaya Aprilia',
-    wa: '',
-    sppDasar: 500000,
-    fees: [
-      { label: 'Uang Pangkal', amount: 4400000, type: 'fixed', monthKey: null },
-      { label: 'SPP Kelas X', amount: 5100000, type: 'fixed', monthKey: null },
-      { label: 'DU Kelas XI', amount: 900000, type: 'fixed', monthKey: null },
-      { label: 'SPP Kelas XI', amount: 6000000, type: 'fixed', monthKey: null },
-      { label: 'DU Kelas XII', amount: 1000000, type: 'fixed', monthKey: null },
-      { label: 'Juli', amount: 500000, type: 'monthly', monthKey: 'juli' },
-      { label: 'Agustus', amount: 600000, type: 'monthly', monthKey: 'agustus' },
-      { label: 'September', amount: 600000, type: 'monthly', monthKey: 'september' },
-      { label: 'Oktober', amount: 600000, type: 'monthly', monthKey: 'oktober' },
-      { label: 'November', amount: 600000, type: 'monthly', monthKey: 'november' },
-      { label: 'Desember', amount: 600000, type: 'monthly', monthKey: 'desember' }
-    ]
   }
 ];
 
@@ -160,97 +160,304 @@ function handleLogoFallback(imgEl) {
 }
 
 // ============================================================================
-// SISTEM AUTENTIKASI & PROTEKSI AKSES BENDAHARA
+// HELPER OPERASI CLOUD FIRESTORE (BATCH ATOMIK + LOG JEJAK AUDIT)
 // ============================================================================
-async function sha256Hex(text) {
-  if (window.crypto && window.crypto.subtle) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(text);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return 'fb_' + Math.abs(hash).toString(16);
-}
-
-async function ensureAuthInitialized() {
-  const existing = localStorage.getItem(STORAGE_KEY_AUTH);
-  if (!existing) {
-    const defaultHash = await sha256Hex(DEFAULT_PASSWORD_PLAINTEXT);
-    localStorage.setItem(
-      STORAGE_KEY_AUTH,
-      JSON.stringify({
-        username: DEFAULT_USERNAME,
-        passwordHash: defaultHash
-      })
-    );
+async function commitFirestoreOps(operations) {
+  // Firestore membatasi maksimal 500 operasi per batch; kita bagi per 400 agar aman
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+    const chunk = operations.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((op) => {
+      const ref = doc(db, op.collection, op.id);
+      if (op.type === 'delete') {
+        batch.delete(ref);
+      } else {
+        batch.set(ref, {
+          ...op.data,
+          updatedAt: serverTimestamp()
+        });
+      }
+    });
+    await batch.commit();
   }
 }
 
-function getAuthCredentials() {
+async function logAuditAction(action, summary) {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY_AUTH));
-  } catch (e) {
-    return null;
+    const userEmail = auth.currentUser ? auth.currentUser.email : 'unknown';
+    await addDoc(collection(db, 'audit_logs'), {
+      action,
+      summary,
+      actorEmail: userEmail,
+      actorName: 'Restasari, S.Sos',
+      createdAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.warn('Audit log dilewati:', err);
   }
 }
 
-function isAuthenticated() {
-  const localToken = localStorage.getItem(STORAGE_KEY_SESSION);
-  const sessionToken = sessionStorage.getItem(STORAGE_KEY_SESSION);
-  return localToken === 'AUTHENTICATED' || sessionToken === 'AUTHENTICATED';
+function updateCloudSyncBadge(isFromCache) {
+  const badge = document.getElementById('cloud-sync-badge');
+  if (!badge) return;
+  if (isFromCache || !navigator.onLine) {
+    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/40';
+    badge.innerHTML = '<i class="fa-solid fa-wifi text-amber-300"></i><span>Mode Offline • Tersimpan Lokal</span>';
+  } else {
+    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-400/20 text-sky-200 border border-sky-300/30';
+    badge.innerHTML = '<i class="fa-solid fa-cloud-check text-sky-300"></i><span>Cloud Terhubung • Real-Time</span>';
+  }
 }
 
-function showAuthenticatedApp() {
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('app-container').classList.remove('hidden');
-  initializeAppData();
+function checkEmptyCloudBanner() {
+  const banner = document.getElementById('cloud-empty-banner');
+  const btnMigrate = document.getElementById('btn-migrate-local');
+  const btnMigrateText = document.getElementById('btn-migrate-local-text');
+  const descEl = document.getElementById('cloud-empty-desc');
+
+  if (!banner) return;
+
+  if (students.length > 0) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  banner.classList.remove('hidden');
+
+  // Cek apakah ada data lama tersimpan di localStorage browser ini
+  let legacyStudents = [];
+  let legacyTx = [];
+  try {
+    legacyStudents = JSON.parse(localStorage.getItem(LEGACY_STORAGE_STUDENTS) || '[]');
+    legacyTx = JSON.parse(localStorage.getItem(LEGACY_STORAGE_TX) || '[]');
+  } catch (e) {
+    legacyStudents = [];
+  }
+
+  if (Array.isArray(legacyStudents) && legacyStudents.length > 0) {
+    btnMigrate.classList.remove('hidden');
+    btnMigrateText.textContent = `Migrasi ${legacyStudents.length} Data Santri Lama ke Cloud`;
+    descEl.innerHTML = `Ditemukan <b>${legacyStudents.length} data santri</b> dan <b>${legacyTx.length} riwayat transaksi</b> dari penyimpanan lokal browser Anda. Klik tombol biru muda di samping untuk memindahkan semuanya ke Cloud Firestore.`;
+  } else {
+    btnMigrate.classList.add('hidden');
+    descEl.textContent = 'Silakan klik tombol "Import Excel (.xlsx)" di pojok kanan atas untuk mengunggah file rekap tagihan Anda, atau isi data contoh awal.';
+  }
 }
 
-function showLoginScreen() {
-  document.getElementById('app-container').classList.add('hidden');
-  document.getElementById('login-screen').classList.remove('hidden');
-  document.getElementById('login-password').value = '';
-  document.getElementById('login-error').classList.add('hidden');
+async function migrateLocalToFirestore() {
+  let legacyStudents = [];
+  let legacyTx = [];
+  try {
+    legacyStudents = JSON.parse(localStorage.getItem(LEGACY_STORAGE_STUDENTS) || '[]');
+    legacyTx = JSON.parse(localStorage.getItem(LEGACY_STORAGE_TX) || '[]');
+  } catch (e) {
+    alert('Data lokal tidak terbaca.');
+    return;
+  }
+
+  if (legacyStudents.length === 0) {
+    alert('Tidak ada data lokal lama yang ditemukan di browser ini.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-migrate-local');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Memindahkan ke Cloud...</span>';
+
+  try {
+    const ops = [];
+    legacyStudents.forEach((st) => {
+      ops.push({ collection: 'students', id: st.id, data: st });
+    });
+    legacyTx.forEach((tx) => {
+      ops.push({ collection: 'transactions', id: tx.id, data: tx });
+    });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('MIGRATE_LOCAL', `Migrasi ${legacyStudents.length} santri & ${legacyTx.length} transaksi ke Cloud`);
+    alert(`Berhasil memindahkan ${legacyStudents.length} data santri dan ${legacyTx.length} transaksi ke Cloud Firestore!`);
+  } catch (err) {
+    console.error(err);
+    alert('Gagal memigrasi data ke Cloud: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function seedInitialSampleToFirestore() {
+  if (!confirm('Isi database Cloud dengan 4 data contoh awal (untuk uji coba)?')) return;
+  try {
+    const ops = INITIAL_SAMPLE_DATA.map((st) => ({
+      collection: 'students',
+      id: st.id,
+      data: st
+    }));
+    await commitFirestoreOps(ops);
+    await logAuditAction('SEED_SAMPLE', 'Mengisi 4 data contoh awal ke Cloud');
+  } catch (err) {
+    alert('Gagal mengisi data contoh: ' + err.message);
+  }
+}
+
+// ============================================================================
+// FIREBASE AUTHENTICATION & SINKRONISASI REAL-TIME FIRESTORE
+// ============================================================================
+onAuthStateChanged(auth, (user) => {
+  const loadingScreen = document.getElementById('auth-loading-screen');
+  const loginScreen = document.getElementById('login-screen');
+  const appContainer = document.getElementById('app-container');
+
+  loadingScreen.classList.add('hidden');
+
+  if (user) {
+    loginScreen.classList.add('hidden');
+    appContainer.classList.remove('hidden');
+    document.getElementById('navbar-user-email').textContent = user.email || 'Bendahara Aktif';
+    attachUIEventListenersOnce();
+    startFirestoreListeners();
+  } else {
+    stopFirestoreListeners();
+    appContainer.classList.add('hidden');
+    loginScreen.classList.remove('hidden');
+    document.getElementById('login-password').value = '';
+  }
+});
+
+function attachUIEventListenersOnce() {
+  if (uiListenersAttached) return;
+  document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
+  document.getElementById('json-restore').addEventListener('change', handleJSONRestore);
+  document.getElementById('newclass-source').addEventListener('change', (e) => {
+    const optBox = document.getElementById('newclass-migration-options');
+    optBox.classList.toggle('hidden', !e.target.value);
+  });
+  window.addEventListener('online', () => updateCloudSyncBadge(false));
+  window.addEventListener('offline', () => updateCloudSyncBadge(true));
+  uiListenersAttached = true;
+}
+
+function startFirestoreListeners() {
+  stopFirestoreListeners();
+
+  // Listener Real-Time Koleksi Santri
+  unsubStudents = onSnapshot(
+    collection(db, 'students'),
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      updateCloudSyncBadge(snapshot.metadata.fromCache);
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      // Urutkan berdasarkan kelas lalu nama santri
+      list.sort((a, b) => {
+        const rankDiff = getSheetChronologicalRank(a.sheet) - getSheetChronologicalRank(b.sheet);
+        if (rankDiff !== 0) return rankDiff;
+        return String(a.nama || '').localeCompare(String(b.nama || ''), 'id');
+      });
+
+      students = list;
+      checkEmptyCloudBanner();
+      populateSheetFilter();
+      renderTable();
+
+      // Jika modal Kartu Induk sedang terbuka, perbarui otomatis
+      const indukModal = document.getElementById('modal-induk');
+      if (indukModal && !indukModal.classList.contains('hidden')) {
+        refreshIndukDetailModal();
+      }
+    },
+    (error) => {
+      console.error('Firestore students listener error:', error);
+      alert('Gagal memuat data dari Cloud Firestore: ' + error.message);
+    }
+  );
+
+  // Listener Real-Time Koleksi Transaksi Pembayaran
+  unsubTransactions = onSnapshot(
+    collection(db, 'transactions'),
+    (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      // Urutkan dari transaksi terbaru ke terlama
+      list.sort((a, b) => String(b.noKwitansi || '').localeCompare(String(a.noKwitansi || '')));
+      transactions = list;
+      renderRiwayat();
+    },
+    (error) => {
+      console.error('Firestore transactions listener error:', error);
+    }
+  );
+}
+
+function stopFirestoreListeners() {
+  if (unsubStudents) {
+    unsubStudents();
+    unsubStudents = null;
+  }
+  if (unsubTransactions) {
+    unsubTransactions();
+    unsubTransactions = null;
+  }
+  students = [];
+  transactions = [];
+}
+
+function translateFirebaseAuthError(code) {
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Email atau Password salah. Periksa kembali akun Bendahara Anda.';
+    case 'auth/invalid-email':
+      return 'Format alamat email tidak valid.';
+    case 'auth/too-many-requests':
+      return 'Terlalu banyak percobaan gagal. Silakan tunggu beberapa menit lalu coba lagi.';
+    case 'auth/network-request-failed':
+      return 'Koneksi internet bermasalah. Pastikan perangkat terhubung ke internet untuk login pertama kali.';
+    default:
+      return 'Gagal masuk (' + code + ').';
+  }
 }
 
 async function handleLogin(event) {
   event.preventDefault();
-  await ensureAuthInitialized();
-
-  const inputUser = document.getElementById('login-username').value.trim().toLowerCase();
-  const inputPass = document.getElementById('login-password').value;
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
   const remember = document.getElementById('login-remember').checked;
+
   const errBox = document.getElementById('login-error');
   const errText = document.getElementById('login-error-text');
+  const infoBox = document.getElementById('login-info');
+  const btn = document.getElementById('btn-login-submit');
 
-  const stored = getAuthCredentials();
-  const inputHash = await sha256Hex(inputPass);
+  errBox.classList.add('hidden');
+  infoBox.classList.add('hidden');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Memverifikasi Akun...</span>';
 
-  if (stored && inputUser === stored.username.toLowerCase() && inputHash === stored.passwordHash) {
-    errBox.classList.add('hidden');
-    if (remember) {
-      localStorage.setItem(STORAGE_KEY_SESSION, 'AUTHENTICATED');
-    } else {
-      sessionStorage.setItem(STORAGE_KEY_SESSION, 'AUTHENTICATED');
-    }
-    showAuthenticatedApp();
-  } else {
-    errText.textContent = 'Username atau Password salah. Akses ditolak.';
+  try {
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (err) {
+    errText.textContent = translateFirebaseAuthError(err.code);
     errBox.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i><span>Masuk ke Sistem Keuangan</span>';
   }
 }
 
-function logoutBendahara() {
+async function logoutBendahara() {
   if (!confirm('Keluar dan kunci halaman keuangan sekarang?')) return;
-  localStorage.removeItem(STORAGE_KEY_SESSION);
-  sessionStorage.removeItem(STORAGE_KEY_SESSION);
-  showLoginScreen();
+  try {
+    await signOut(auth);
+  } catch (err) {
+    alert('Gagal keluar: ' + err.message);
+  }
 }
 
 function togglePasswordVisibility(inputId, btn) {
@@ -265,9 +472,25 @@ function togglePasswordVisibility(inputId, btn) {
   }
 }
 
+async function openResetPasswordPrompt() {
+  const currentInput = document.getElementById('login-email').value.trim();
+  const email = prompt('Masukkan alamat Email Bendahara untuk menerima tautan reset password:', currentInput);
+  if (!email) return;
+
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+    const infoBox = document.getElementById('login-info');
+    const infoText = document.getElementById('login-info-text');
+    infoText.textContent = `Tautan pengaturan ulang password telah dikirim ke ${email.trim()}. Silakan periksa kotak masuk / folder Spam.`;
+    infoBox.classList.remove('hidden');
+  } catch (err) {
+    alert('Gagal mengirim email reset password: ' + translateFirebaseAuthError(err.code));
+  }
+}
+
 function openAccountModal() {
-  const stored = getAuthCredentials();
-  document.getElementById('acc-username').value = stored ? stored.username : DEFAULT_USERNAME;
+  const user = auth.currentUser;
+  document.getElementById('acc-email').value = user ? user.email : '';
   document.getElementById('acc-old-password').value = '';
   document.getElementById('acc-new-password').value = '';
   document.getElementById('acc-confirm-password').value = '';
@@ -276,112 +499,32 @@ function openAccountModal() {
 
 async function saveAccountCredentials(event) {
   event.preventDefault();
-  await ensureAuthInitialized();
+  const user = auth.currentUser;
+  if (!user) return;
 
-  const newUsername = document.getElementById('acc-username').value.trim();
   const oldPass = document.getElementById('acc-old-password').value;
   const newPass = document.getElementById('acc-new-password').value;
   const confirmPass = document.getElementById('acc-confirm-password').value;
 
-  if (!newUsername) {
-    alert('Username wajib diisi.');
-    return;
-  }
   if (newPass !== confirmPass) {
     alert('Konfirmasi password baru tidak cocok.');
     return;
   }
 
-  const stored = getAuthCredentials();
-  const oldHash = await sha256Hex(oldPass);
-  if (!stored || oldHash !== stored.passwordHash) {
-    alert('Password lama yang Anda masukkan salah.');
-    return;
+  const btn = document.getElementById('btn-save-account');
+  btn.disabled = true;
+
+  try {
+    const credential = EmailAuthProvider.credential(user.email, oldPass);
+    await reauthenticateWithCredential(user, credential);
+    await updatePassword(user, newPass);
+    closeModal('modal-account');
+    alert('Password akun Bendahara berhasil diperbarui di Cloud!');
+  } catch (err) {
+    alert('Gagal memperbarui password: ' + translateFirebaseAuthError(err.code));
+  } finally {
+    btn.disabled = false;
   }
-
-  const newHash = await sha256Hex(newPass);
-  localStorage.setItem(
-    STORAGE_KEY_AUTH,
-    JSON.stringify({
-      username: newUsername,
-      passwordHash: newHash
-    })
-  );
-
-  closeModal('modal-account');
-  alert(`Username & Password berhasil diperbarui!\nUsername aktif sekarang: ${newUsername}`);
-}
-
-async function openResetPasswordPrompt() {
-  const pin = prompt('Masukkan Kode Pemulihan Instansi untuk mereset akun ke pengaturan awal:');
-  if (pin === null) return;
-  if (pin.trim() === INSTITUTION_RECOVERY_PIN) {
-    const defaultHash = await sha256Hex(DEFAULT_PASSWORD_PLAINTEXT);
-    localStorage.setItem(
-      STORAGE_KEY_AUTH,
-      JSON.stringify({
-        username: DEFAULT_USERNAME,
-        passwordHash: defaultHash
-      })
-    );
-    alert(`Akun berhasil direset!\nUsername: ${DEFAULT_USERNAME}\nPassword: ${DEFAULT_PASSWORD_PLAINTEXT}`);
-  } else {
-    alert('Kode pemulihan salah.');
-  }
-}
-
-// ============================================================================
-// INISIALISASI HALAMAN & PENYIMPANAN LOKAL
-// ============================================================================
-let appInitialized = false;
-
-document.addEventListener('DOMContentLoaded', async () => {
-  // Hapus cache tema lama agar tema Biru Dark & Biru Light selalu diterapkan
-  localStorage.removeItem(STORAGE_KEY_OLD_THEME);
-  await ensureAuthInitialized();
-
-  if (isAuthenticated()) {
-    showAuthenticatedApp();
-  } else {
-    showLoginScreen();
-  }
-});
-
-function initializeAppData() {
-  loadData();
-  populateSheetFilter();
-  renderTable();
-  renderIndukTab();
-  renderRiwayat();
-
-  if (!appInitialized) {
-    document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
-    document.getElementById('json-restore').addEventListener('change', handleJSONRestore);
-    document.getElementById('newclass-source').addEventListener('change', (e) => {
-      const optBox = document.getElementById('newclass-migration-options');
-      optBox.classList.toggle('hidden', !e.target.value);
-    });
-    appInitialized = true;
-  }
-}
-
-function loadData() {
-  const savedStudents = localStorage.getItem(STORAGE_KEY_STUDENTS);
-  const savedTx = localStorage.getItem(STORAGE_KEY_TX);
-
-  if (savedStudents) {
-    students = JSON.parse(savedStudents);
-  } else {
-    students = JSON.parse(JSON.stringify(INITIAL_SAMPLE_DATA));
-    saveData();
-  }
-
-  transactions = savedTx ? JSON.parse(savedTx) : [];
-}
-
-function saveData() {
-  localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(students));
-  localStorage.setItem(STORAGE_KEY_TX, JSON.stringify(transactions));
 }
 
 // ============================================================================
@@ -535,7 +678,7 @@ function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
       let sheetCleanSum = 0;
       let sheetRawSum = 0;
 
-      rec.fees.forEach((fee, feeIdx) => {
+      (rec.fees || []).forEach((fee, feeIdx) => {
         const amt = Number(fee.amount) || 0;
         if (amt <= 0) return;
 
@@ -646,7 +789,7 @@ function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
   return profiles.sort((a, b) => a.displayName.localeCompare(b.displayName, 'id'));
 }
 
-function syncLinkedStudentFees(sourceStudent, paidFeeLabel, paidAmount) {
+function computeLinkedStudentSyncs(sourceStudent, paidFeeLabel, paidAmount, touchedStudentMap) {
   if (paidAmount <= 0) return [];
   const normName = normalizeStudentName(sourceStudent.nama);
   const siblingRecords = students.filter(
@@ -659,10 +802,12 @@ function syncLinkedStudentFees(sourceStudent, paidFeeLabel, paidAmount) {
   const adjustments = [];
 
   siblingRecords.forEach((sib) => {
-    const sibRank = getSheetChronologicalRank(sib.sheet);
-    sib.fees.forEach((f, idx) => {
-      if (f.amount <= 0 || f.type !== 'fixed') return;
+    const clone = touchedStudentMap[sib.id] || JSON.parse(JSON.stringify(sib));
+    const sibRank = getSheetChronologicalRank(clone.sheet);
+    let modified = false;
 
+    clone.fees.forEach((f, idx) => {
+      if (f.amount <= 0 || f.type !== 'fixed') return;
       const sameFixed = normalizeFixedFeeKey(f.label) === paidNormKey;
       const isLaterCarryOver = sibRank > sourceRank && isCarryOverSummaryLabel(f.label);
 
@@ -670,8 +815,9 @@ function syncLinkedStudentFees(sourceStudent, paidFeeLabel, paidAmount) {
         const deduct = Math.min(f.amount, paidAmount);
         if (deduct > 0) {
           f.amount -= deduct;
+          modified = true;
           adjustments.push({
-            studentId: sib.id,
+            studentId: clone.id,
             feeIndex: idx,
             label: f.label,
             deducted: deduct
@@ -679,20 +825,24 @@ function syncLinkedStudentFees(sourceStudent, paidFeeLabel, paidAmount) {
         }
       }
     });
+
+    if (modified) {
+      touchedStudentMap[clone.id] = clone;
+    }
   });
 
   return adjustments;
 }
 
 // ============================================================================
-// PARSER FILE EXCEL (BIAYA PENDIDIKAN 2026-2027.xlsx - SELURUH SHEET)
+// PARSER FILE EXCEL & UNGGAH MASSAL KE CLOUD FIRESTORE
 // ============================================================================
 function handleExcelUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     try {
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, { type: 'array', cellDates: true });
@@ -768,8 +918,9 @@ function handleExcelUpload(event) {
             monthKey: col.monthKey
           }));
 
+          const safeSheetId = sheetName.replace(/[^a-zA-Z0-9_-]/g, '_');
           parsedStudents.push({
-            id: `st-${sheetName.replace(/\s+/g, '_')}-${r}`,
+            id: `st-${safeSheetId}-${r}`,
             sheet: sheetName,
             unit: inferUnitFromSheet(sheetName),
             tahunAjaran: tahunAjaran,
@@ -786,6 +937,11 @@ function handleExcelUpload(event) {
         return;
       }
 
+      if (!confirm(`Ditemukan ${parsedStudents.length} data baris dari ${workbook.SheetNames.length} sheet.\n\nData di Cloud Firestore akan diperbarui sesuai file Excel ini (Nomor WA yang sudah tersimpan tetap dipertahankan). Lanjutkan?`)) {
+        return;
+      }
+
+      // Pertahankan nomor WA wali santri yang sudah pernah diinput
       const oldWaMap = {};
       students.forEach((s) => {
         if (s.wa) oldWaMap[normalizeStudentName(s.nama)] = s.wa;
@@ -795,15 +951,27 @@ function handleExcelUpload(event) {
         if (oldWaMap[norm]) s.wa = oldWaMap[norm];
       });
 
-      students = parsedStudents;
-      saveData();
-      populateSheetFilter();
-      renderTable();
-      renderIndukTab();
-      alert(`Berhasil mengimpor ${students.length} data baris dari ${workbook.SheetNames.length} sheet!`);
+      const newIdSet = new Set(parsedStudents.map((s) => s.id));
+      const ops = [];
+
+      // Hapus dokumen lama yang tidak ada di Excel baru
+      students.forEach((oldSt) => {
+        if (!newIdSet.has(oldSt.id)) {
+          ops.push({ type: 'delete', collection: 'students', id: oldSt.id });
+        }
+      });
+
+      // Simpan/timpa dokumen baru ke Firestore
+      parsedStudents.forEach((st) => {
+        ops.push({ type: 'set', collection: 'students', id: st.id, data: st });
+      });
+
+      await commitFirestoreOps(ops);
+      await logAuditAction('IMPORT_EXCEL', `Import ${parsedStudents.length} baris dari file ${file.name}`);
+      alert(`Berhasil mengimpor & menyinkronkan ${parsedStudents.length} data santri ke Cloud Firestore!`);
     } catch (err) {
       console.error(err);
-      alert('Gagal membaca file Excel. Pastikan file berformat .xlsx atau .xls yang valid.');
+      alert('Gagal memproses file Excel: ' + err.message);
     }
     event.target.value = '';
   };
@@ -828,7 +996,7 @@ function getStudentArrears(student, cutoffMonth) {
   const activeItems = [];
   let total = 0;
 
-  student.fees.forEach((fee, idx) => {
+  (student.fees || []).forEach((fee, idx) => {
     const amt = Number(fee.amount) || 0;
     if (amt <= 0) return;
 
@@ -1288,19 +1456,25 @@ function refreshIndukDetailModal() {
   });
 }
 
-function saveIndukWA() {
+async function saveIndukWA() {
   const normName = document.getElementById('induk-modal-norm-name').value;
   const newWa = document.getElementById('induk-modal-wa').value.trim();
 
-  students.forEach((s) => {
-    if (normalizeStudentName(s.nama) === normName) {
-      s.wa = newWa;
-    }
-  });
+  const matching = students.filter((s) => normalizeStudentName(s.nama) === normName);
+  if (matching.length === 0) return;
 
-  saveData();
-  renderTable();
-  alert('Nomor WhatsApp wali santri berhasil disimpan & disinkronkan ke seluruh kelas/semester santri ini!');
+  try {
+    const ops = matching.map((s) => ({
+      type: 'set',
+      collection: 'students',
+      id: s.id,
+      data: { ...s, wa: newWa }
+    }));
+    await commitFirestoreOps(ops);
+    alert('Nomor WhatsApp wali santri berhasil disimpan ke Cloud & disinkronkan ke seluruh kelas/semester santri ini!');
+  } catch (err) {
+    alert('Gagal menyimpan nomor WA: ' + err.message);
+  }
 }
 
 function openWAInduk() {
@@ -1406,7 +1580,7 @@ function openPrintInduk() {
 }
 
 // ============================================================================
-// MODUL PEMBAYARAN GABUNGAN LINTAS SEMESTER
+// MODUL PEMBAYARAN GABUNGAN LINTAS SEMESTER (SIMPAN KE CLOUD)
 // ============================================================================
 function openBayarGabunganModal() {
   const normName = document.getElementById('induk-modal-norm-name').value;
@@ -1493,7 +1667,7 @@ function recalcBayarGabTotal() {
   document.getElementById('bayar-gab-total-preview').textContent = formatRupiah(sum);
 }
 
-function submitPembayaranGabungan() {
+async function submitPembayaranGabungan() {
   const normName = document.getElementById('bayar-gab-norm-name').value;
   const prof = buildUnifiedStudentProfiles('DEDUP').find((p) => p.normName === normName);
   if (!prof) return;
@@ -1502,6 +1676,7 @@ function submitPembayaranGabungan() {
   const metode = document.getElementById('bayar-gab-metode').value;
   const catatan = document.getElementById('bayar-gab-catatan').value.trim();
 
+  const touchedStudentMap = {};
   const paidDetails = [];
   const allSyncedAdjustments = [];
   let totalPaid = 0;
@@ -1513,23 +1688,25 @@ function submitPembayaranGabungan() {
     const payVal = Math.max(0, Math.round(Number(inp.value) || 0));
 
     if (payVal > 0) {
-      const st = students.find((s) => s.id === sid);
-      if (st && st.fees[fidx]) {
-        const actualPay = Math.min(payVal, st.fees[fidx].amount);
+      const origSt = students.find((s) => s.id === sid);
+      if (origSt && origSt.fees[fidx]) {
+        const clone = touchedStudentMap[sid] || JSON.parse(JSON.stringify(origSt));
+        const actualPay = Math.min(payVal, clone.fees[fidx].amount);
         if (actualPay > 0) {
-          st.fees[fidx].amount -= actualPay;
+          clone.fees[fidx].amount -= actualPay;
+          touchedStudentMap[sid] = clone;
           totalPaid += actualPay;
-          touchedSheets.add(st.sheet);
+          touchedSheets.add(clone.sheet);
 
-          const syncs = syncLinkedStudentFees(st, st.fees[fidx].label, actualPay);
+          const syncs = computeLinkedStudentSyncs(clone, clone.fees[fidx].label, actualPay, touchedStudentMap);
           allSyncedAdjustments.push(...syncs);
 
           paidDetails.push({
-            studentId: st.id,
+            studentId: clone.id,
             feeIndex: fidx,
-            label: `[${st.sheet}] ${st.fees[fidx].label}`,
+            label: `[${clone.sheet}] ${clone.fees[fidx].label}`,
             paid: actualPay,
-            remaining: st.fees[fidx].amount
+            remaining: clone.fees[fidx].amount
           });
         }
       }
@@ -1557,17 +1734,29 @@ function submitPembayaranGabungan() {
     syncedAdjustments: allSyncedAdjustments
   };
 
-  transactions.unshift(txRecord);
-  saveData();
-  renderTable();
-  renderRiwayat();
-  refreshIndukDetailModal();
-  closeModal('modal-bayar-gabungan');
-  openPrintKwitansi(txRecord.id);
+  try {
+    const ops = Object.values(touchedStudentMap).map((stObj) => ({
+      type: 'set',
+      collection: 'students',
+      id: stObj.id,
+      data: stObj
+    }));
+    ops.push({ type: 'set', collection: 'transactions', id: txRecord.id, data: txRecord });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('PAYMENT_COMBINED', `Kwitansi ${noKwitansi} (${prof.displayName}): ${formatRupiah(totalPaid)}`);
+
+    // Simpan ke array lokal seketika agar modal kwitansi bisa langsung ditampilkan bahkan saat offline
+    transactions.unshift(txRecord);
+    closeModal('modal-bayar-gabungan');
+    openPrintKwitansi(txRecord.id);
+  } catch (err) {
+    alert('Gagal menyimpan pembayaran gabungan: ' + err.message);
+  }
 }
 
 // ============================================================================
-// MODUL PEMBAYARAN SATU SHEET & KWITANSI OTOMATIS
+// MODUL PEMBAYARAN SATU SHEET & KWITANSI OTOMATIS (SIMPAN KE CLOUD)
 // ============================================================================
 function openBayarModal(studentId) {
   const st = students.find((s) => s.id === studentId);
@@ -1581,7 +1770,7 @@ function openBayarModal(studentId) {
   const listContainer = document.getElementById('bayar-items-list');
   listContainer.innerHTML = '';
 
-  const unpaidFees = st.fees.map((f, idx) => ({ ...f, idx })).filter((f) => f.amount > 0);
+  const unpaidFees = (st.fees || []).map((f, idx) => ({ ...f, idx })).filter((f) => f.amount > 0);
 
   if (unpaidFees.length === 0) {
     listContainer.innerHTML = '<p class="text-xs text-blue-900 font-semibold text-center py-3">Seluruh tagihan santri ini sudah LUNAS!</p>';
@@ -1627,14 +1816,18 @@ function recalcBayarTotal() {
   document.getElementById('bayar-total-preview').textContent = formatRupiah(sum);
 }
 
-function submitPembayaran() {
+async function submitPembayaran() {
   const studentId = document.getElementById('bayar-student-id').value;
-  const st = students.find((s) => s.id === studentId);
-  if (!st) return;
+  const origSt = students.find((s) => s.id === studentId);
+  if (!origSt) return;
 
   const tanggal = document.getElementById('bayar-tanggal').value || new Date().toISOString().split('T')[0];
   const metode = document.getElementById('bayar-metode').value;
   const catatan = document.getElementById('bayar-catatan').value.trim();
+
+  const touchedStudentMap = {};
+  const cloneSt = JSON.parse(JSON.stringify(origSt));
+  touchedStudentMap[cloneSt.id] = cloneSt;
 
   const paidDetails = [];
   const allSyncedAdjustments = [];
@@ -1643,20 +1836,20 @@ function submitPembayaran() {
   document.querySelectorAll('.bayar-amount').forEach((inp) => {
     const idx = Number(inp.getAttribute('data-idx'));
     const payVal = Math.max(0, Math.round(Number(inp.value) || 0));
-    if (payVal > 0 && st.fees[idx]) {
-      const actualPay = Math.min(payVal, st.fees[idx].amount);
-      st.fees[idx].amount -= actualPay;
+    if (payVal > 0 && cloneSt.fees[idx]) {
+      const actualPay = Math.min(payVal, cloneSt.fees[idx].amount);
+      cloneSt.fees[idx].amount -= actualPay;
       totalPaid += actualPay;
 
-      const syncs = syncLinkedStudentFees(st, st.fees[idx].label, actualPay);
+      const syncs = computeLinkedStudentSyncs(cloneSt, cloneSt.fees[idx].label, actualPay, touchedStudentMap);
       allSyncedAdjustments.push(...syncs);
 
       paidDetails.push({
-        studentId: st.id,
+        studentId: cloneSt.id,
         feeIndex: idx,
-        label: st.fees[idx].label,
+        label: cloneSt.fees[idx].label,
         paid: actualPay,
-        remaining: st.fees[idx].amount
+        remaining: cloneSt.fees[idx].amount
       });
     }
   });
@@ -1671,10 +1864,10 @@ function submitPembayaran() {
     id: 'tx-' + Date.now(),
     noKwitansi,
     tanggal,
-    studentId: st.id,
-    nama: st.nama,
-    sheet: st.sheet,
-    unit: st.unit,
+    studentId: cloneSt.id,
+    nama: cloneSt.nama,
+    sheet: cloneSt.sheet,
+    unit: cloneSt.unit,
     metode,
     catatan,
     totalPaid,
@@ -1682,49 +1875,78 @@ function submitPembayaran() {
     syncedAdjustments: allSyncedAdjustments
   };
 
-  transactions.unshift(txRecord);
-  saveData();
-  renderTable();
-  renderRiwayat();
-  closeModal('modal-bayar');
-  openPrintKwitansi(txRecord.id);
+  try {
+    const ops = Object.values(touchedStudentMap).map((stObj) => ({
+      type: 'set',
+      collection: 'students',
+      id: stObj.id,
+      data: stObj
+    }));
+    ops.push({ type: 'set', collection: 'transactions', id: txRecord.id, data: txRecord });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('PAYMENT', `Kwitansi ${noKwitansi} (${cloneSt.nama} - ${cloneSt.sheet}): ${formatRupiah(totalPaid)}`);
+
+    transactions.unshift(txRecord);
+    closeModal('modal-bayar');
+    openPrintKwitansi(txRecord.id);
+  } catch (err) {
+    alert('Gagal menyimpan pembayaran: ' + err.message);
+  }
 }
 
-function cancelTransaction(txId) {
-  const txIdx = transactions.findIndex((t) => t.id === txId);
-  if (txIdx === -1) return;
-  const tx = transactions[txIdx];
+async function cancelTransaction(txId) {
+  const tx = transactions.find((t) => t.id === txId);
+  if (!tx) return;
 
-  if (!confirm(`Batalkan transaksi ${tx.noKwitansi} (${tx.nama} - ${formatRupiah(tx.totalPaid)})?\n\nSaldo tunggakan santri (termasuk sinkronisasi lintas semester) akan dikembalikan seperti semula.`)) {
+  if (!confirm(`Batalkan transaksi ${tx.noKwitansi} (${tx.nama} - ${formatRupiah(tx.totalPaid)})?\n\nSaldo tunggakan santri (termasuk sinkronisasi lintas semester) di Cloud akan dikembalikan seperti semula.`)) {
     return;
   }
 
+  const touchedStudentMap = {};
+
   tx.details.forEach((d) => {
     const targetSid = d.studentId || tx.studentId;
-    const st = students.find((s) => s.id === targetSid);
-    if (st) {
-      const feeObj = (typeof d.feeIndex === 'number' && st.fees[d.feeIndex])
-        ? st.fees[d.feeIndex]
-        : st.fees.find((f) => f.label === d.label);
+    const origSt = students.find((s) => s.id === targetSid);
+    if (origSt) {
+      const clone = touchedStudentMap[targetSid] || JSON.parse(JSON.stringify(origSt));
+      const feeObj = (typeof d.feeIndex === 'number' && clone.fees[d.feeIndex])
+        ? clone.fees[d.feeIndex]
+        : clone.fees.find((f) => f.label === d.label);
       if (feeObj) {
         feeObj.amount += Number(d.paid) || 0;
+        touchedStudentMap[targetSid] = clone;
       }
     }
   });
 
   if (Array.isArray(tx.syncedAdjustments)) {
     tx.syncedAdjustments.forEach((adj) => {
-      const st = students.find((s) => s.id === adj.studentId);
-      if (st && st.fees[adj.feeIndex]) {
-        st.fees[adj.feeIndex].amount += Number(adj.deducted) || 0;
+      const origSt = students.find((s) => s.id === adj.studentId);
+      if (origSt) {
+        const clone = touchedStudentMap[adj.studentId] || JSON.parse(JSON.stringify(origSt));
+        if (clone.fees[adj.feeIndex]) {
+          clone.fees[adj.feeIndex].amount += Number(adj.deducted) || 0;
+          touchedStudentMap[adj.studentId] = clone;
+        }
       }
     });
   }
 
-  transactions.splice(txIdx, 1);
-  saveData();
-  renderTable();
-  renderRiwayat();
+  try {
+    const ops = Object.values(touchedStudentMap).map((stObj) => ({
+      type: 'set',
+      collection: 'students',
+      id: stObj.id,
+      data: stObj
+    }));
+    ops.push({ type: 'delete', collection: 'transactions', id: tx.id });
+
+    await commitFirestoreOps(ops);
+    await logAuditAction('CANCEL_TX', `Membatalkan transaksi ${tx.noKwitansi} (${tx.nama} - ${formatRupiah(tx.totalPaid)})`);
+  } catch (err) {
+    alert('Gagal membatalkan transaksi: ' + err.message);
+  }
 }
 
 function renderRiwayat() {
@@ -1738,7 +1960,7 @@ function renderRiwayat() {
   }
 
   transactions.forEach((tx) => {
-    const detailStr = tx.details.map((d) => `${d.label} (${formatRupiah(d.paid)})`).join(', ');
+    const detailStr = (tx.details || []).map((d) => `${d.label} (${formatRupiah(d.paid)})`).join(', ');
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-sky-50/60';
     tr.innerHTML = `
@@ -1813,7 +2035,7 @@ function sendKwitansiWA(txId) {
   const prof = buildUnifiedStudentProfiles('DEDUP').find((p) => p.normName === normName);
   const sisaGabungan = prof ? prof.cleanTotal : 0;
 
-  const rincian = tx.details.map((d, i) => `${i + 1}. ${d.label}: ${formatRupiah(d.paid)}`).join('\n');
+  const rincian = (tx.details || []).map((d, i) => `${i + 1}. ${d.label}: ${formatRupiah(d.paid)}`).join('\n');
   const msg = `Assalamu'alaikum Warahmatullahi Wabarakatuh.
 *BUKTI PEMBAYARAN BIAYA PENDIDIKAN*
 *PONPES SIT AL FIRDAUS*
@@ -1947,7 +2169,7 @@ function openPrintKwitansi(txId) {
   const tx = transactions.find((t) => t.id === txId);
   if (!tx) return;
 
-  const rowsHtml = tx.details.map((d, i) => `
+  const rowsHtml = (tx.details || []).map((d, i) => `
     <tr class="border-b border-slate-200">
       <td class="py-2 px-3 text-center">${i + 1}</td>
       <td class="py-2 px-3">${d.label}</td>
@@ -2031,7 +2253,7 @@ function printRekapSummary() {
 }
 
 // ============================================================================
-// TAMBAH, EDIT, HAPUS SANTRI & BUAT KELAS / SEMESTER BARU
+// TAMBAH, EDIT, HAPUS SANTRI & BUAT KELAS / SEMESTER BARU (CLOUD FIRESTORE)
 // ============================================================================
 function openAddStudentModal() {
   const currentSheetFilter = document.getElementById('filter-sheet').value;
@@ -2062,7 +2284,7 @@ function openEditModal(studentId) {
 
   const container = document.getElementById('edit-fees-container');
   container.innerHTML = '';
-  st.fees.forEach((f) => addEditFeeRow(f.label, f.amount));
+  (st.fees || []).forEach((f) => addEditFeeRow(f.label, f.amount));
   openModal('modal-edit');
 }
 
@@ -2096,7 +2318,7 @@ function addEditFeeRow(label = '', amount = 0) {
   container.appendChild(div);
 }
 
-function saveStudentEdit() {
+async function saveStudentEdit() {
   const id = document.getElementById('edit-student-id').value;
   const nama = document.getElementById('edit-nama').value.trim();
   const wa = document.getElementById('edit-wa').value.trim();
@@ -2118,53 +2340,58 @@ function saveStudentEdit() {
     }
   });
 
-  if (id) {
-    const idx = students.findIndex((s) => s.id === id);
-    if (idx !== -1) {
-      students[idx] = { ...students[idx], nama, wa, sheet, unit: inferUnitFromSheet(sheet), sppDasar, fees };
-    }
-  } else {
-    students.push({
-      id: 'st-' + Date.now(),
-      sheet,
-      unit: inferUnitFromSheet(sheet),
-      tahunAjaran: '2026-2027',
-      nama,
-      wa,
-      sppDasar,
-      fees
-    });
-  }
+  const targetId = id || 'st-' + Date.now();
+  const existing = id ? students.find((s) => s.id === id) : null;
+  const updatedStudent = {
+    id: targetId,
+    sheet,
+    unit: inferUnitFromSheet(sheet),
+    tahunAjaran: existing ? (existing.tahunAjaran || '2026-2027') : '2026-2027',
+    nama,
+    wa,
+    sppDasar,
+    fees
+  };
 
+  const ops = [{ type: 'set', collection: 'students', id: targetId, data: updatedStudent }];
+
+  // Sinkronkan nomor WA ke semua record santri bernama sama
   if (wa) {
     const norm = normalizeStudentName(nama);
     students.forEach((s) => {
-      if (normalizeStudentName(s.nama) === norm) s.wa = wa;
+      if (s.id !== targetId && normalizeStudentName(s.nama) === norm && s.wa !== wa) {
+        ops.push({ type: 'set', collection: 'students', id: s.id, data: { ...s, wa } });
+      }
     });
   }
 
-  saveData();
-  populateSheetFilter();
-  renderTable();
-  closeModal('modal-edit');
+  try {
+    await commitFirestoreOps(ops);
+    await logAuditAction(id ? 'EDIT_STUDENT' : 'ADD_STUDENT', `${id ? 'Mengubah' : 'Menambah'} data ${nama} (${sheet})`);
+    closeModal('modal-edit');
+  } catch (err) {
+    alert('Gagal menyimpan data santri ke Cloud: ' + err.message);
+  }
 }
 
-function deleteCurrentStudent() {
+async function deleteCurrentStudent() {
   const id = document.getElementById('edit-student-id').value;
   const st = students.find((s) => s.id === id);
   if (!st) return;
 
-  if (!confirm(`Yakin ingin menghapus data santri "${st.nama}" (${st.sheet}) secara permanen?`)) return;
+  if (!confirm(`Yakin ingin menghapus data santri "${st.nama}" (${st.sheet}) dari Cloud Firestore secara permanen?`)) return;
 
-  students = students.filter((s) => s.id !== id);
-  saveData();
-  populateSheetFilter();
-  renderTable();
-  closeModal('modal-edit');
+  try {
+    await commitFirestoreOps([{ type: 'delete', collection: 'students', id: st.id }]);
+    await logAuditAction('DELETE_STUDENT', `Menghapus data ${st.nama} (${st.sheet})`);
+    closeModal('modal-edit');
+  } catch (err) {
+    alert('Gagal menghapus data santri: ' + err.message);
+  }
 }
 
 // ============================================================================
-// BUAT KELAS / SEMESTER BARU (MIGRASI MASSAL ANTAR SEMESTER)
+// BUAT KELAS / SEMESTER BARU (MIGRASI MASSAL ANTAR SEMESTER DI CLOUD)
 // ============================================================================
 function openNewClassModal() {
   document.getElementById('newclass-name').value = '';
@@ -2184,7 +2411,7 @@ function openNewClassModal() {
   openModal('modal-new-class');
 }
 
-function createNewClass() {
+async function createNewClass() {
   const newSheetName = document.getElementById('newclass-name').value.trim();
   const sourceSheet = document.getElementById('newclass-source').value;
 
@@ -2199,13 +2426,15 @@ function createNewClass() {
     return;
   }
 
+  const newDocs = [];
+
   if (!sourceSheet) {
     const isSmt2 = detectSheetSemester(newSheetName) === 'SMT2';
     const months = isSmt2
       ? ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni']
       : ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-    students.push({
+    newDocs.push({
       id: 'st-' + Date.now(),
       sheet: newSheetName,
       unit: inferUnitFromSheet(newSheetName),
@@ -2246,7 +2475,7 @@ function createNewClass() {
         });
       }
 
-      students.push({
+      newDocs.push({
         id: `st-${Date.now()}-${i}`,
         sheet: newSheetName,
         unit: inferUnitFromSheet(newSheetName),
@@ -2259,19 +2488,23 @@ function createNewClass() {
     });
   }
 
-  saveData();
-  populateSheetFilter();
-  document.getElementById('filter-unit').value = 'ALL';
-  document.getElementById('filter-semester').value = 'ALL';
-  document.getElementById('filter-sheet').value = newSheetName;
-  document.getElementById('filter-cutoff').value = 'ALL';
-  renderTable();
-  closeModal('modal-new-class');
-  alert(`Kelas / Semester "${newSheetName}" berhasil dibuat dan terhubung ke Kartu Induk Santri!`);
+  try {
+    const ops = newDocs.map((d) => ({ type: 'set', collection: 'students', id: d.id, data: d }));
+    await commitFirestoreOps(ops);
+    await logAuditAction('CREATE_CLASS', `Membuat kelas ${newSheetName} (${newDocs.length} santri)`);
+
+    document.getElementById('filter-unit').value = 'ALL';
+    document.getElementById('filter-semester').value = 'ALL';
+    document.getElementById('filter-cutoff').value = 'ALL';
+    closeModal('modal-new-class');
+    alert(`Kelas / Semester "${newSheetName}" berhasil dibuat di Cloud dan terhubung ke Kartu Induk Santri!`);
+  } catch (err) {
+    alert('Gagal membuat kelas baru: ' + err.message);
+  }
 }
 
 // ============================================================================
-// EXPORT REKAP EXCEL & BACKUP JSON
+// EXPORT REKAP EXCEL, UNDUH JSON & RESTORE JSON KE CLOUD
 // ============================================================================
 function exportToExcel() {
   const unitFilter = document.getElementById('filter-unit').value;
@@ -2353,7 +2586,7 @@ function exportToExcel() {
       'Nama Santri': t.nama,
       Kelas: t.sheet,
       Metode: t.metode,
-      Rincian: t.details.map((d) => `${d.label}: ${d.paid}`).join('; '),
+      Rincian: (t.details || []).map((d) => `${d.label}: ${d.paid}`).join('; '),
       'Total Dibayar': t.totalPaid
     }));
     const wsTx = XLSX.utils.json_to_sheet(txRows);
@@ -2376,7 +2609,7 @@ function backupJSON() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Backup_Keuangan_AlFirdaus_${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `Backup_Cloud_AlFirdaus_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -2385,22 +2618,37 @@ function handleJSONRestore(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = async function (e) {
     try {
       const parsed = JSON.parse(e.target.result);
       if (Array.isArray(parsed.students)) {
-        students = parsed.students;
-        transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
-        saveData();
-        populateSheetFilter();
-        renderTable();
-        renderRiwayat();
-        alert('Data berhasil dipulihkan dari file backup!');
+        const restoredTx = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+        if (!confirm(`Pulihkan ${parsed.students.length} data santri dan ${restoredTx.length} transaksi dari file JSON ke Cloud Firestore?`)) {
+          return;
+        }
+
+        const ops = [];
+        const newStIds = new Set(parsed.students.map((s) => s.id));
+        students.forEach((oldSt) => {
+          if (!newStIds.has(oldSt.id)) {
+            ops.push({ type: 'delete', collection: 'students', id: oldSt.id });
+          }
+        });
+        parsed.students.forEach((st) => {
+          ops.push({ type: 'set', collection: 'students', id: st.id, data: st });
+        });
+        restoredTx.forEach((tx) => {
+          ops.push({ type: 'set', collection: 'transactions', id: tx.id, data: tx });
+        });
+
+        await commitFirestoreOps(ops);
+        await logAuditAction('RESTORE_JSON', `Restore ${parsed.students.length} santri & ${restoredTx.length} transaksi dari file JSON`);
+        alert('Data berhasil dipulihkan & disinkronkan ke Cloud Firestore!');
       } else {
         alert('Format file JSON tidak valid.');
       }
     } catch (err) {
-      alert('Gagal membaca file backup JSON.');
+      alert('Gagal memulihkan file JSON: ' + err.message);
     }
     event.target.value = '';
   };
@@ -2436,3 +2684,58 @@ function closeModal(id) {
   el.classList.add('hidden');
   el.classList.remove('flex');
 }
+
+// ============================================================================
+// DAFTARKAN FUNGSI KE GLOBAL WINDOW AGAR TERPANGGIL DARI ATRIBUT HTML
+// ============================================================================
+Object.assign(window, {
+  handleLogoFallback,
+  handleLogin,
+  logoutBendahara,
+  togglePasswordVisibility,
+  openResetPasswordPrompt,
+  openAccountModal,
+  saveAccountCredentials,
+  migrateLocalToFirestore,
+  seedInitialSampleToFirestore,
+  switchTab,
+  onUnitOrSemesterChange,
+  resetFilters,
+  renderTable,
+  renderIndukTab,
+  openIndukDetailModal,
+  refreshIndukDetailModal,
+  saveIndukWA,
+  openWAInduk,
+  openPrintInduk,
+  openBayarGabunganModal,
+  toggleBayarGabItem,
+  checkAllBayarGabItems,
+  recalcBayarGabTotal,
+  submitPembayaranGabungan,
+  openBayarModal,
+  toggleBayarItem,
+  checkAllBayarItems,
+  recalcBayarTotal,
+  submitPembayaran,
+  cancelTransaction,
+  openWAModal,
+  sendKwitansiWA,
+  copyWAMessage,
+  sendWANow,
+  openPrintTagihan,
+  openPrintKwitansi,
+  printRekapSummary,
+  openAddStudentModal,
+  openEditModal,
+  applyFeeTemplate,
+  addEditFeeRow,
+  saveStudentEdit,
+  deleteCurrentStudent,
+  openNewClassModal,
+  createNewClass,
+  exportToExcel,
+  backupJSON,
+  openModal,
+  closeModal
+});
