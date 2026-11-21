@@ -2,13 +2,14 @@
 // SISTEM PENCATATAN & REKAPITULASI BIAYA PENDIDIKAN
 // INSTANSI : PONPES SIT AL FIRDAUS BANDARLAMPUNG (SMPIT / SMAIT AL FIRDAUS)
 // BENDAHARA: RESTASARI, S.Sos
+// TEMA     : BIRU DARK & BIRU LIGHT
 // ============================================================================
 
 const STORAGE_KEY_STUDENTS = 'alfirdaus_students_v1';
 const STORAGE_KEY_TX = 'alfirdaus_transactions_v1';
 const STORAGE_KEY_AUTH = 'alfirdaus_bendahara_auth_v1';
 const STORAGE_KEY_SESSION = 'alfirdaus_bendahara_session_v1';
-const STORAGE_KEY_THEME = 'alfirdaus_logo_theme_v1';
+const STORAGE_KEY_OLD_THEME = 'alfirdaus_logo_theme_v1';
 
 // Link resmi logo Google Drive Ponpes SIT Al Firdaus Bandarlampung
 const DRIVE_FILE_ID = '1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_';
@@ -148,7 +149,7 @@ const INITIAL_SAMPLE_DATA = [
 ];
 
 // ============================================================================
-// LOGO FALLBACK & EKSTRAKSI PALET WARNA OTOMATIS DARI LOGO
+// LOGO FALLBACK
 // ============================================================================
 function handleLogoFallback(imgEl) {
   const attempt = Number(imgEl.getAttribute('data-attempt') || '0') + 1;
@@ -156,172 +157,6 @@ function handleLogoFallback(imgEl) {
     imgEl.setAttribute('data-attempt', String(attempt));
     imgEl.src = LOGO_URLS[attempt];
   }
-}
-
-function rgbToHex(r, g, b) {
-  return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
-}
-
-function rgbToHsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0, l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h *= 60;
-  }
-  return { h, s, l };
-}
-
-function hslToRgb(h, s, l) {
-  h = ((h % 360) + 360) % 360;
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  let r1 = 0, g1 = 0, b1 = 0;
-  if (h < 60) { r1 = c; g1 = x; }
-  else if (h < 120) { r1 = x; g1 = c; }
-  else if (h < 180) { g1 = c; b1 = x; }
-  else if (h < 240) { g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; b1 = c; }
-  else { r1 = c; b1 = x; }
-  return {
-    r: Math.round((r1 + m) * 255),
-    g: Math.round((g1 + m) * 255),
-    b: Math.round((b1 + m) * 255)
-  };
-}
-
-function extractAndApplyLogoTheme() {
-  const probe = new Image();
-  probe.crossOrigin = 'anonymous';
-  let urlIndex = 0;
-
-  probe.onload = function () {
-    try {
-      const canvas = document.createElement('canvas');
-      const size = 80;
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(probe, 0, 0, size, size);
-      const data = ctx.getImageData(0, 0, size, size).data;
-
-      // Kelompokkan piksel berwarna ke dalam 12 sektor hue (30 derajat per sektor)
-      const buckets = Array.from({ length: 12 }, () => ({
-        weight: 0,
-        rSum: 0,
-        gSum: 0,
-        bSum: 0
-      }));
-
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
-        if (a < 140) continue;
-        // Abaikan latar putih & garis tepi hitam pekat
-        if (r > 235 && g > 235 && b > 235) continue;
-        if (r < 25 && g < 25 && b < 25) continue;
-
-        const { h, s, l } = rgbToHsl(r, g, b);
-        if (s < 0.22 || l < 0.08 || l > 0.92) continue;
-
-        const idx = Math.floor(h / 30) % 12;
-        const w = s * (1 - Math.abs(l - 0.45));
-        buckets[idx].weight += w;
-        buckets[idx].rSum += r * w;
-        buckets[idx].gSum += g * w;
-        buckets[idx].bSum += b * w;
-      }
-
-      const ranked = buckets
-        .map((b, idx) => ({
-          idx,
-          weight: b.weight,
-          r: b.weight > 0 ? b.rSum / b.weight : 0,
-          g: b.weight > 0 ? b.gSum / b.weight : 0,
-          b: b.weight > 0 ? b.bSum / b.weight : 0
-        }))
-        .filter((b) => b.weight > 0)
-        .sort((a, b) => b.weight - a.weight);
-
-      if (ranked.length === 0) return;
-
-      const primaryRaw = ranked[0];
-      const pHsl = rgbToHsl(primaryRaw.r, primaryRaw.g, primaryRaw.b);
-
-      // Pastikan kontras teks putih di atas warna utama selalu tajam (lightness maks 0.34)
-      const mainL = Math.min(0.34, Math.max(0.20, pHsl.l));
-      const mainS = Math.min(0.85, Math.max(0.45, pHsl.s));
-
-      const mainRgb = hslToRgb(pHsl.h, mainS, mainL);
-      const darkRgb = hslToRgb(pHsl.h, mainS, Math.max(0.11, mainL - 0.11));
-      const midRgb = hslToRgb(pHsl.h, mainS, Math.min(0.42, mainL + 0.07));
-      const softRgb = hslToRgb(pHsl.h, Math.min(0.55, mainS * 0.7), 0.96);
-      const borderRgb = hslToRgb(pHsl.h, Math.min(0.55, mainS * 0.75), 0.84);
-
-      // Cari warna aksen kedua yang berbeda sektor hue minimal 2 langkah
-      const secondaryRaw = ranked.find((b) => {
-        const diff = Math.min(Math.abs(b.idx - primaryRaw.idx), 12 - Math.abs(b.idx - primaryRaw.idx));
-        return diff >= 2;
-      });
-
-      let accentRgb, accentDarkRgb;
-      if (secondaryRaw) {
-        const sHsl = rgbToHsl(secondaryRaw.r, secondaryRaw.g, secondaryRaw.b);
-        const accL = Math.min(0.55, Math.max(0.42, sHsl.l));
-        const accS = Math.min(0.92, Math.max(0.60, sHsl.s));
-        accentRgb = hslToRgb(sHsl.h, accS, accL);
-        accentDarkRgb = hslToRgb(sHsl.h, accS, Math.max(0.32, accL - 0.09));
-      } else {
-        // Jika logo monokrom, gunakan aksen emas hangat yang harmonis
-        accentRgb = { r: 234, g: 179, b: 8 };
-        accentDarkRgb = { r: 202, g: 138, b: 4 };
-      }
-
-      const yiq = (accentRgb.r * 299 + accentRgb.g * 587 + accentRgb.b * 114) / 1000;
-      const accentText = yiq >= 150 ? '#0f172a' : '#ffffff';
-
-      const theme = {
-        primary: rgbToHex(mainRgb.r, mainRgb.g, mainRgb.b),
-        primaryDark: rgbToHex(darkRgb.r, darkRgb.g, darkRgb.b),
-        primaryMid: rgbToHex(midRgb.r, midRgb.g, midRgb.b),
-        primarySoft: rgbToHex(softRgb.r, softRgb.g, softRgb.b),
-        primaryBorder: rgbToHex(borderRgb.r, borderRgb.g, borderRgb.b),
-        accent: rgbToHex(accentRgb.r, accentRgb.g, accentRgb.b),
-        accentDark: rgbToHex(accentDarkRgb.r, accentDarkRgb.g, accentDarkRgb.b),
-        accentText
-      };
-
-      const rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--brand-primary', theme.primary);
-      rootStyle.setProperty('--brand-primary-dark', theme.primaryDark);
-      rootStyle.setProperty('--brand-primary-mid', theme.primaryMid);
-      rootStyle.setProperty('--brand-primary-soft', theme.primarySoft);
-      rootStyle.setProperty('--brand-primary-border', theme.primaryBorder);
-      rootStyle.setProperty('--brand-accent', theme.accent);
-      rootStyle.setProperty('--brand-accent-dark', theme.accentDark);
-      rootStyle.setProperty('--brand-accent-text', theme.accentText);
-
-      localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(theme));
-    } catch (err) {
-      // Tetap gunakan warna default apabila browser memblokir canvas CORS
-    }
-  };
-
-  probe.onerror = function () {
-    urlIndex++;
-    if (urlIndex < LOGO_URLS.length) {
-      probe.src = LOGO_URLS[urlIndex];
-    }
-  };
-
-  probe.src = LOGO_URLS[0];
 }
 
 // ============================================================================
@@ -335,7 +170,6 @@ async function sha256Hex(text) {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   }
-  // Fallback sederhana jika dijalankan di konteks HTTP non-localhost
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
@@ -502,7 +336,8 @@ async function openResetPasswordPrompt() {
 let appInitialized = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  extractAndApplyLogoTheme();
+  // Hapus cache tema lama agar tema Biru Dark & Biru Light selalu diterapkan
+  localStorage.removeItem(STORAGE_KEY_OLD_THEME);
   await ensureAuthInitialized();
 
   if (isAuthenticated()) {
@@ -1128,29 +963,29 @@ function renderTable() {
 
     const smtCode = detectSheetSemester(st.sheet);
     const smtBadgeColor = smtCode === 'SMT2'
-      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+      ? 'bg-sky-100 text-sky-900 border-sky-300'
       : smtCode === 'ALUMNI'
-        ? 'bg-amber-50 text-amber-700 border-amber-200'
-        : 'bg-teal-50 text-teal-700 border-teal-200';
+        ? 'bg-slate-100 text-slate-700 border-slate-300'
+        : 'bg-blue-100 text-blue-950 border-blue-300';
 
     const linkedBadge = linkedCount > 1
-      ? `<button onclick="openIndukDetailModal('${escapedNorm}')" class="ml-1.5 inline-flex items-center gap-1 bg-purple-100 hover:bg-purple-200 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded" title="Klik untuk buka Kartu Induk Gabungan Lintas Semester"><i class="fa-solid fa-link"></i> ${linkedCount} Smt</button>`
+      ? `<button onclick="openIndukDetailModal('${escapedNorm}')" class="ml-1.5 inline-flex items-center gap-1 bg-sky-100 hover:bg-sky-200 text-blue-950 border border-sky-300 text-[10px] font-bold px-1.5 py-0.5 rounded" title="Klik untuk buka Kartu Induk Gabungan Lintas Semester"><i class="fa-solid fa-link text-sky-700"></i> ${linkedCount} Smt</button>`
       : '';
 
     const badgesHtml = activeItems.length > 0
       ? activeItems.map((it) => `<span class="inline-block bg-rose-50 text-rose-700 border border-rose-200 text-[11px] px-2 py-0.5 rounded mr-1 mb-1">${it.label}: <b>${formatRupiah(it.amount)}</b></span>`).join('')
-      : '<span class="text-xs text-brand-primary italic">Tidak ada tunggakan</span>';
+      : '<span class="text-xs text-sky-700 italic">Tidak ada tunggakan</span>';
 
     const statusBadge = total === 0
-      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-primary-soft text-brand-primary border border-brand-soft">LUNAS</span>'
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-blue-950 border border-sky-300">LUNAS</span>'
       : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">MENUNGGAK</span>';
 
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-50 transition';
+    tr.className = 'hover:bg-sky-50/60 transition';
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-500">${i + 1}</td>
       <td class="px-4 py-3">
-        <div class="font-bold text-slate-800 flex items-center flex-wrap">
+        <div class="font-bold text-blue-950 flex items-center flex-wrap">
           <span>${st.nama}</span>
           ${linkedBadge}
         </div>
@@ -1158,27 +993,27 @@ function renderTable() {
       </td>
       <td class="px-4 py-3">
         <div class="flex flex-wrap items-center gap-1">
-          <span class="bg-slate-100 text-slate-800 font-bold text-xs px-2 py-0.5 rounded">${st.sheet}</span>
+          <span class="bg-blue-950 text-white font-bold text-xs px-2 py-0.5 rounded">${st.sheet}</span>
           <span class="border text-[10px] font-semibold px-1.5 py-0.5 rounded ${smtBadgeColor}">${getSemesterLabel(smtCode)}</span>
         </div>
         <div class="text-[11px] text-slate-500 mt-0.5">${st.unit}</div>
       </td>
       <td class="px-4 py-3 text-right font-medium text-slate-600">${formatRupiah(st.sppDasar)}</td>
       <td class="px-4 py-3 max-w-xs">${badgesHtml}</td>
-      <td class="px-4 py-3 text-right font-bold ${total > 0 ? 'text-rose-600' : 'text-brand-primary'}">${formatRupiah(total)}</td>
+      <td class="px-4 py-3 text-right font-bold ${total > 0 ? 'text-rose-600' : 'text-blue-900'}">${formatRupiah(total)}</td>
       <td class="px-4 py-3 text-center">${statusBadge}</td>
       <td class="px-4 py-3">
         <div class="flex items-center justify-center gap-1">
           <button onclick="openBayarModal('${st.id}')" class="btn-brand-primary text-xs px-2 py-1.5 rounded-lg font-semibold" title="Catat Pembayaran Kelas Ini">
             <i class="fa-solid fa-cash-register"></i> Bayar
           </button>
-          <button onclick="openIndukDetailModal('${escapedNorm}')" class="bg-purple-600 hover:bg-purple-700 text-white text-xs px-2 py-1.5 rounded-lg font-semibold" title="Buka Kartu Induk Gabungan Lintas Semester">
+          <button onclick="openIndukDetailModal('${escapedNorm}')" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-2 py-1.5 rounded-lg font-semibold" title="Buka Kartu Induk Gabungan Lintas Semester">
             <i class="fa-solid fa-id-card"></i>
           </button>
           <button onclick="openWAModal('${st.id}')" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1.5 rounded-lg" title="Kirim Tagihan via WhatsApp">
             <i class="fa-brands fa-whatsapp"></i>
           </button>
-          <button onclick="openPrintTagihan('${st.id}')" class="bg-slate-700 hover:bg-slate-800 text-white text-xs px-2 py-1.5 rounded-lg" title="Cetak Surat Tagihan PDF">
+          <button onclick="openPrintTagihan('${st.id}')" class="bg-slate-800 hover:bg-slate-900 text-white text-xs px-2 py-1.5 rounded-lg" title="Cetak Surat Tagihan PDF">
             <i class="fa-solid fa-print"></i>
           </button>
           <button onclick="openEditModal('${st.id}')" class="bg-amber-500 hover:bg-amber-600 text-white text-xs px-2 py-1.5 rounded-lg" title="Edit Data Santri">
@@ -1256,7 +1091,7 @@ function renderRekap() {
     sumNominal += g.nominal;
 
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-50 cursor-pointer';
+    tr.className = 'hover:bg-sky-50/60 cursor-pointer';
     tr.title = 'Klik untuk melihat detail santri kelas ini';
     tr.onclick = () => {
       document.getElementById('filter-sheet').value = g.sheet;
@@ -1265,13 +1100,13 @@ function renderRekap() {
     };
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
-      <td class="px-4 py-3 font-bold text-brand-primary underline">${g.sheet}</td>
+      <td class="px-4 py-3 font-bold text-blue-900 underline">${g.sheet}</td>
       <td class="px-4 py-3 text-slate-600">${g.unit}</td>
-      <td class="px-4 py-3 text-xs font-semibold text-slate-600">${g.semester}</td>
+      <td class="px-4 py-3 text-xs font-semibold text-sky-800">${g.semester}</td>
       <td class="px-4 py-3 text-center">${g.totalSantri}</td>
-      <td class="px-4 py-3 text-center text-brand-primary font-semibold">${g.lunas}</td>
+      <td class="px-4 py-3 text-center text-blue-900 font-semibold">${g.lunas}</td>
       <td class="px-4 py-3 text-center text-rose-600 font-semibold">${g.menunggak}</td>
-      <td class="px-4 py-3 text-right font-bold text-slate-800">${formatRupiah(g.nominal)}</td>
+      <td class="px-4 py-3 text-right font-bold text-blue-950">${formatRupiah(g.nominal)}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -1329,44 +1164,44 @@ function renderIndukTab() {
     const escapedNorm = p.normName.replace(/'/g, "\\'");
 
     const chainHtml = p.sheetSummaries
-      .map((s) => `<span class="inline-block bg-brand-primary-soft text-brand-primary border border-brand-soft text-[11px] font-bold px-2 py-0.5 rounded">${s.sheet}</span>`)
-      .join(' <i class="fa-solid fa-arrow-right text-[9px] text-slate-400 mx-0.5"></i> ');
+      .map((s) => `<span class="inline-block bg-sky-100 text-blue-950 border border-sky-300 text-[11px] font-bold px-2 py-0.5 rounded">${s.sheet}</span>`)
+      .join(' <i class="fa-solid fa-arrow-right text-[9px] text-sky-500 mx-0.5"></i> ');
 
     const breakdownHtml = p.sheetSummaries
       .map((s) => {
         const subVal = dedupMode === 'DEDUP' ? s.cleanSum : s.rawSum;
-        return `<div class="text-xs flex items-center justify-between gap-3 py-0.5 border-b border-slate-100 last:border-0">
+        return `<div class="text-xs flex items-center justify-between gap-3 py-0.5 border-b border-blue-50 last:border-0">
           <span class="text-slate-600 font-medium">${s.sheet}:</span>
-          <span class="font-bold ${subVal > 0 ? 'text-rose-600' : 'text-brand-primary'}">${formatRupiah(subVal)}</span>
+          <span class="font-bold ${subVal > 0 ? 'text-rose-600' : 'text-blue-900'}">${formatRupiah(subVal)}</span>
         </div>`;
       })
       .join('');
 
     const statusBadge = totalVal === 0
-      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-primary-soft text-brand-primary border border-brand-soft">LUNAS</span>'
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-blue-950 border border-sky-300">LUNAS</span>'
       : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">MENUNGGAK</span>';
 
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-50 transition';
+    tr.className = 'hover:bg-sky-50/60 transition';
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
       <td class="px-4 py-3">
-        <div class="font-bold text-slate-800">${p.displayName}</div>
+        <div class="font-bold text-blue-950">${p.displayName}</div>
         <div class="text-[11px] text-slate-500">${p.latestUnit}</div>
         <div class="text-[11px] text-slate-400">${p.wa ? '<i class="fa-brands fa-whatsapp text-green-600"></i> ' + p.wa : 'No. WA belum diisi'}</div>
       </td>
       <td class="px-4 py-3">
         <div class="flex flex-wrap items-center gap-y-1">${chainHtml}</div>
         ${p.duplicatedAmount > 0 && dedupMode === 'DEDUP'
-          ? `<div class="text-[10px] text-brand-primary mt-1"><i class="fa-solid fa-shield-halved mr-1"></i>Anti-ganda: ${formatRupiah(p.duplicatedAmount)} pos bawaan disesuaikan</div>`
+          ? `<div class="text-[10px] text-sky-700 mt-1"><i class="fa-solid fa-shield-halved mr-1"></i>Anti-ganda: ${formatRupiah(p.duplicatedAmount)} pos bawaan disesuaikan</div>`
           : ''}
       </td>
       <td class="px-4 py-3 min-w-[190px]">${breakdownHtml}</td>
-      <td class="px-4 py-3 text-right font-extrabold text-sm ${totalVal > 0 ? 'text-rose-600' : 'text-brand-primary'}">${formatRupiah(totalVal)}</td>
+      <td class="px-4 py-3 text-right font-extrabold text-sm ${totalVal > 0 ? 'text-rose-600' : 'text-blue-900'}">${formatRupiah(totalVal)}</td>
       <td class="px-4 py-3 text-center">${statusBadge}</td>
       <td class="px-4 py-3 text-center">
         <button onclick="openIndukDetailModal('${escapedNorm}')" class="btn-brand-primary text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
-          <i class="fa-solid fa-id-card mr-1"></i>Buka Kartu Induk
+          <i class="fa-solid fa-id-card text-sky-300 mr-1"></i>Buka Kartu Induk
         </button>
       </td>
     `;
@@ -1404,7 +1239,7 @@ function refreshIndukDetailModal() {
 
   const noteEl = document.getElementById('induk-modal-dedup-note');
   if (mode === 'DEDUP' && prof.duplicatedAmount > 0) {
-    noteEl.innerHTML = `<i class="fa-solid fa-circle-info text-brand-primary mr-1"></i>Pos bawaan/duplikat lintas semester sebesar <b>${formatRupiah(prof.duplicatedAmount)}</b> otomatis dikecualikan agar tidak tertagih ganda.`;
+    noteEl.innerHTML = `<i class="fa-solid fa-circle-info text-sky-700 mr-1"></i>Pos bawaan/duplikat lintas semester sebesar <b>${formatRupiah(prof.duplicatedAmount)}</b> otomatis dikecualikan agar tidak tertagih ganda.`;
   } else if (prof.sheetCount > 1) {
     noteEl.textContent = 'Seluruh pos dari semua semester telah digabungkan secara kronologis.';
   } else {
@@ -1417,11 +1252,11 @@ function refreshIndukDetailModal() {
   prof.sheetSummaries.forEach((sh) => {
     const subTotal = mode === 'DEDUP' ? sh.cleanSum : sh.rawSum;
     const card = document.createElement('div');
-    card.className = 'border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm';
+    card.className = 'border border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm';
 
     const itemsRows = sh.items.length > 0
       ? sh.items.map((it) => `
-          <tr class="border-b border-slate-100 last:border-0 ${it.isDuplicate ? 'bg-amber-50/60 text-slate-400' : ''}">
+          <tr class="border-b border-blue-50 last:border-0 ${it.isDuplicate ? 'bg-amber-50/60 text-slate-400' : ''}">
             <td class="px-3 py-2 text-xs font-medium">
               <span class="${it.isDuplicate ? 'line-through' : 'text-slate-700'}">${it.label}</span>
               ${it.isDuplicate ? `<span class="ml-1.5 inline-block bg-amber-100 text-amber-800 text-[10px] font-semibold px-1.5 py-0.5 rounded">${it.duplicateReason}</span>` : ''}
@@ -1430,17 +1265,17 @@ function refreshIndukDetailModal() {
               ${formatRupiah(it.amount)}
             </td>
           </tr>`).join('')
-      : `<tr><td colspan="2" class="px-3 py-3 text-center text-xs text-brand-primary font-semibold">Alhamdulillah, seluruh pos di kelas ini sudah LUNAS</td></tr>`;
+      : `<tr><td colspan="2" class="px-3 py-3 text-center text-xs text-blue-900 font-semibold">Alhamdulillah, seluruh pos di kelas ini sudah LUNAS</td></tr>`;
 
     card.innerHTML = `
-      <div class="bg-slate-100 px-3.5 py-2.5 flex items-center justify-between border-b border-slate-200">
+      <div class="bg-sky-50 px-3.5 py-2.5 flex items-center justify-between border-b border-blue-100">
         <div>
-          <span class="font-bold text-xs text-slate-800">${sh.sheet}</span>
+          <span class="font-bold text-xs text-blue-950">${sh.sheet}</span>
           <span class="text-[11px] text-slate-500 ml-1.5">(${sh.unit} &bull; SPP: ${formatRupiah(sh.sppDasar)})</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-xs font-bold ${subTotal > 0 ? 'text-rose-700' : 'text-brand-primary'}">Subtotal: ${formatRupiah(subTotal)}</span>
-          <button onclick="openEditModal('${sh.studentId}'); closeModal('modal-induk');" class="text-[11px] bg-white hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-300" title="Edit Pos Kelas Ini">
+          <span class="text-xs font-bold ${subTotal > 0 ? 'text-rose-700' : 'text-blue-900'}">Subtotal: ${formatRupiah(subTotal)}</span>
+          <button onclick="openEditModal('${sh.studentId}'); closeModal('modal-induk');" class="text-[11px] bg-white hover:bg-sky-100 text-blue-950 px-2 py-0.5 rounded border border-sky-300" title="Edit Pos Kelas Ini">
             <i class="fa-solid fa-pen"></i>
           </button>
         </div>
@@ -1523,7 +1358,7 @@ function openPrintInduk() {
       rowsHtml += `
         <tr class="border-b border-slate-200">
           <td class="py-2 px-3 text-center">${rowNum++}</td>
-          <td class="py-2 px-3 font-semibold text-slate-700">${sh.sheet}</td>
+          <td class="py-2 px-3 font-semibold text-blue-950">${sh.sheet}</td>
           <td class="py-2 px-3">${it.label}</td>
           <td class="py-2 px-3 text-right font-semibold">${formatRupiah(it.amount)}</td>
         </tr>`;
@@ -1531,13 +1366,13 @@ function openPrintInduk() {
   });
 
   if (!rowsHtml) {
-    rowsHtml = `<tr><td colspan="4" class="py-4 text-center text-emerald-700 font-semibold">Alhamdulillah, Seluruh Tagihan Lintas Semester Sudah LUNAS</td></tr>`;
+    rowsHtml = `<tr><td colspan="4" class="py-4 text-center text-blue-900 font-semibold">Alhamdulillah, Seluruh Tagihan Lintas Semester Sudah LUNAS</td></tr>`;
   }
 
   document.getElementById('print-area').innerHTML = `
     ${getKopSuratHTML()}
     <div class="text-center mb-4">
-      <h3 class="font-bold text-base underline uppercase">KARTU INDUK REKAPITULASI BIAYA PENDIDIKAN</h3>
+      <h3 class="font-bold text-base underline uppercase text-blue-950">KARTU INDUK REKAPITULASI BIAYA PENDIDIKAN</h3>
       <p class="text-xs text-slate-600">Rekap Gabungan Lintas Semester &amp; Jenjang</p>
     </div>
     <table class="w-full text-xs mb-4">
@@ -1545,8 +1380,8 @@ function openPrintInduk() {
       <tr><td class="py-1 font-semibold">Unit Pendidikan</td><td>: ${prof.latestUnit}</td></tr>
       <tr><td class="py-1 font-semibold">Riwayat Kelas / Smt</td><td>: ${prof.sheetSummaries.map((s) => s.sheet).join(' → ')}</td></tr>
     </table>
-    <table class="w-full text-xs border border-slate-300 mb-3">
-      <thead class="bg-slate-100 border-b border-slate-300">
+    <table class="w-full text-xs border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
         <tr>
           <th class="py-2 px-3 w-12">No</th>
           <th class="py-2 px-3 text-left">Kelas / Semester</th>
@@ -1555,14 +1390,14 @@ function openPrintInduk() {
         </tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot class="bg-slate-50 font-bold border-t-2 border-slate-400">
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
         <tr>
           <td colspan="3" class="py-2 px-3 text-right uppercase">Total Tagihan Gabungan</td>
           <td class="py-2 px-3 text-right text-sm">${formatRupiah(grandTotal)}</td>
         </tr>
       </tfoot>
     </table>
-    <div class="bg-slate-100 p-2.5 rounded text-xs italic border border-slate-200">
+    <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
       <strong>Terbilang:</strong> ${terbilang(grandTotal)}
     </div>
     ${getSignatureHTML(today)}
@@ -1592,15 +1427,15 @@ function openBayarGabunganModal() {
     hasUnpaid = true;
 
     const groupDiv = document.createElement('div');
-    groupDiv.className = 'bg-white border border-slate-200 rounded-xl p-2.5 space-y-1.5';
-    groupDiv.innerHTML = `<div class="text-xs font-bold text-brand-primary border-b border-slate-100 pb-1">${sh.sheet} (${sh.unit})</div>`;
+    groupDiv.className = 'bg-white border border-blue-100 rounded-xl p-2.5 space-y-1.5';
+    groupDiv.innerHTML = `<div class="text-xs font-bold text-blue-950 border-b border-sky-100 pb-1">${sh.sheet} (${sh.unit})</div>`;
 
     sh.items.forEach((it) => {
       const row = document.createElement('div');
       row.className = `flex items-center justify-between gap-2 p-1.5 rounded ${it.isDuplicate ? 'bg-amber-50/70' : ''}`;
       row.innerHTML = `
         <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1">
-          <input type="checkbox" class="bayar-gab-check w-4 h-4"
+          <input type="checkbox" class="bayar-gab-check w-4 h-4 accent-blue-900"
             data-student-id="${it.studentId}"
             data-fee-idx="${it.feeIndex}"
             data-max="${it.amount}"
@@ -1625,7 +1460,7 @@ function openBayarGabunganModal() {
   });
 
   if (!hasUnpaid) {
-    container.innerHTML = '<p class="text-xs text-brand-primary font-semibold text-center py-4">Seluruh tagihan lintas semester santri ini sudah LUNAS!</p>';
+    container.innerHTML = '<p class="text-xs text-blue-900 font-semibold text-center py-4">Seluruh tagihan lintas semester santri ini sudah LUNAS!</p>';
   }
 
   recalcBayarGabTotal();
@@ -1749,14 +1584,14 @@ function openBayarModal(studentId) {
   const unpaidFees = st.fees.map((f, idx) => ({ ...f, idx })).filter((f) => f.amount > 0);
 
   if (unpaidFees.length === 0) {
-    listContainer.innerHTML = '<p class="text-xs text-brand-primary font-semibold text-center py-3">Seluruh tagihan santri ini sudah LUNAS!</p>';
+    listContainer.innerHTML = '<p class="text-xs text-blue-900 font-semibold text-center py-3">Seluruh tagihan santri ini sudah LUNAS!</p>';
   } else {
     unpaidFees.forEach((f) => {
       const row = document.createElement('div');
-      row.className = 'flex items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-slate-200';
+      row.className = 'flex items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-blue-100';
       row.innerHTML = `
         <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1">
-          <input type="checkbox" class="bayar-check w-4 h-4" data-idx="${f.idx}" data-max="${f.amount}" onchange="toggleBayarItem(this)" />
+          <input type="checkbox" class="bayar-check w-4 h-4 accent-blue-900" data-idx="${f.idx}" data-max="${f.amount}" onchange="toggleBayarItem(this)" />
           <span>${f.label} <span class="text-slate-400 font-normal">(Sisa: ${formatRupiah(f.amount)})</span></span>
         </label>
         <input type="number" class="bayar-amount w-32 border border-slate-300 rounded px-2 py-1 text-xs text-right font-semibold" data-idx="${f.idx}" max="${f.amount}" min="0" value="0" oninput="recalcBayarTotal()" />
@@ -1905,17 +1740,17 @@ function renderRiwayat() {
   transactions.forEach((tx) => {
     const detailStr = tx.details.map((d) => `${d.label} (${formatRupiah(d.paid)})`).join(', ');
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-50';
+    tr.className = 'hover:bg-sky-50/60';
     tr.innerHTML = `
-      <td class="px-4 py-3 font-mono text-xs font-bold text-brand-primary">${tx.noKwitansi}</td>
+      <td class="px-4 py-3 font-mono text-xs font-bold text-blue-900">${tx.noKwitansi}</td>
       <td class="px-4 py-3 text-xs text-slate-600">${tx.tanggal}</td>
-      <td class="px-4 py-3 font-bold text-slate-800">${tx.nama}</td>
-      <td class="px-4 py-3 text-xs"><span class="bg-slate-100 px-2 py-0.5 rounded font-semibold">${tx.sheet}</span></td>
+      <td class="px-4 py-3 font-bold text-blue-950">${tx.nama}</td>
+      <td class="px-4 py-3 text-xs"><span class="bg-sky-100 text-blue-950 border border-sky-200 px-2 py-0.5 rounded font-semibold">${tx.sheet}</span></td>
       <td class="px-4 py-3 text-xs text-slate-600">${detailStr}</td>
-      <td class="px-4 py-3 text-right font-bold text-brand-primary">${formatRupiah(tx.totalPaid)}</td>
+      <td class="px-4 py-3 text-right font-bold text-blue-900">${formatRupiah(tx.totalPaid)}</td>
       <td class="px-4 py-3 text-center">
         <div class="flex items-center justify-center gap-1.5">
-          <button onclick="openPrintKwitansi('${tx.id}')" class="bg-slate-700 hover:bg-slate-800 text-white text-xs px-2.5 py-1 rounded" title="Cetak Kwitansi">
+          <button onclick="openPrintKwitansi('${tx.id}')" class="bg-slate-800 hover:bg-slate-900 text-white text-xs px-2.5 py-1 rounded" title="Cetak Kwitansi">
             <i class="fa-solid fa-print"></i>
           </button>
           <button onclick="sendKwitansiWA('${tx.id}')" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2.5 py-1 rounded" title="Kirim Bukti Bayar via WA">
@@ -2024,7 +1859,7 @@ function sendWANow() {
 // ============================================================================
 function getKopSuratHTML() {
   return `
-    <div class="border-b-4 border-double border-slate-800 pb-3 mb-4 flex items-center justify-center gap-4">
+    <div class="border-b-4 border-double border-blue-950 pb-3 mb-4 flex items-center justify-center gap-4">
       <img
         src="https://lh3.googleusercontent.com/d/1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_"
         onerror="handleLogoFallback(this)"
@@ -2032,8 +1867,8 @@ function getKopSuratHTML() {
         class="w-16 h-16 object-contain shrink-0"
       />
       <div class="text-center">
-        <p class="text-[11px] font-semibold tracking-widest uppercase text-brand-primary">Yayasan Pendidikan Islam Terpadu</p>
-        <h2 class="text-xl font-extrabold tracking-wide text-slate-900">PONPES SIT AL FIRDAUS BANDARLAMPUNG</h2>
+        <p class="text-[11px] font-semibold tracking-widest uppercase text-sky-700">Yayasan Pendidikan Islam Terpadu</p>
+        <h2 class="text-xl font-extrabold tracking-wide text-blue-950">PONPES SIT AL FIRDAUS BANDARLAMPUNG</h2>
         <p class="text-xs font-semibold text-slate-700">UNIT SMPIT AL FIRDAUS &bull; UNIT SMAIT AL FIRDAUS</p>
         <p class="text-[11px] text-slate-500 mt-0.5">Administrasi Keuangan &amp; Tata Usaha Bendahara</p>
       </div>
@@ -2046,11 +1881,11 @@ function getSignatureHTML(tanggalStr) {
     <div class="mt-8 flex justify-end">
       <div class="text-center text-xs w-56">
         <p>Bandarlampung, ${tanggalStr}</p>
-        <p class="font-semibold mt-0.5">Bendahara Ponpes SIT Al Firdaus,</p>
+        <p class="font-semibold mt-0.5 text-blue-950">Bendahara Ponpes SIT Al Firdaus,</p>
         <div class="h-16 flex items-center justify-center text-slate-300 italic text-[10px]">
           (Cap &amp; Tanda Tangan Resmi)
         </div>
-        <p class="font-bold underline text-slate-900 text-sm">Restasari, S.Sos</p>
+        <p class="font-bold underline text-blue-950 text-sm">Restasari, S.Sos</p>
       </div>
     </div>
   `;
@@ -2071,12 +1906,12 @@ function openPrintTagihan(studentId) {
           <td class="py-2 px-3">${it.label}</td>
           <td class="py-2 px-3 text-right font-semibold">${formatRupiah(it.amount)}</td>
         </tr>`).join('')
-    : `<tr><td colspan="3" class="py-4 text-center text-brand-primary font-semibold">Alhamdulillah, Tidak Ada Tunggakan (LUNAS)</td></tr>`;
+    : `<tr><td colspan="3" class="py-4 text-center text-blue-900 font-semibold">Alhamdulillah, Tidak Ada Tunggakan (LUNAS)</td></tr>`;
 
   document.getElementById('print-area').innerHTML = `
     ${getKopSuratHTML()}
     <div class="text-center mb-4">
-      <h3 class="font-bold text-base underline uppercase">SURAT PEMBERITAHUAN RINCIAN BIAYA PENDIDIKAN</h3>
+      <h3 class="font-bold text-base underline uppercase text-blue-950">SURAT PEMBERITAHUAN RINCIAN BIAYA PENDIDIKAN</h3>
       <p class="text-xs text-slate-600">Periode: ${cutoffFilter === 'ALL' ? 'Tahun Pelajaran ' + st.tahunAjaran : 's.d. Bulan ' + cutoffFilter + ' (' + st.tahunAjaran + ')'}</p>
     </div>
     <table class="w-full text-xs mb-4">
@@ -2084,8 +1919,8 @@ function openPrintTagihan(studentId) {
       <tr><td class="py-1 font-semibold">Kelas / Unit</td><td>: ${st.sheet} (${st.unit})</td></tr>
       <tr><td class="py-1 font-semibold">Tarif SPP Dasar</td><td>: ${formatRupiah(st.sppDasar)} / bulan</td></tr>
     </table>
-    <table class="w-full text-xs border border-slate-300 mb-3">
-      <thead class="bg-slate-100 border-b border-slate-300">
+    <table class="w-full text-xs border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
         <tr>
           <th class="py-2 px-3 w-12">No</th>
           <th class="py-2 px-3 text-left">Komponen Biaya / Bulan</th>
@@ -2093,14 +1928,14 @@ function openPrintTagihan(studentId) {
         </tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot class="bg-slate-50 font-bold border-t-2 border-slate-400">
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
         <tr>
           <td colspan="2" class="py-2 px-3 text-right uppercase">Total Tagihan</td>
           <td class="py-2 px-3 text-right text-sm">${formatRupiah(total)}</td>
         </tr>
       </tfoot>
     </table>
-    <div class="bg-slate-100 p-2.5 rounded text-xs italic border border-slate-200">
+    <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
       <strong>Terbilang:</strong> ${terbilang(total)}
     </div>
     ${getSignatureHTML(today)}
@@ -2124,11 +1959,11 @@ function openPrintKwitansi(txId) {
     ${getKopSuratHTML()}
     <div class="flex justify-between items-center mb-4">
       <div>
-        <h3 class="font-bold text-base underline uppercase">KWITANSI PEMBAYARAN RESMI</h3>
+        <h3 class="font-bold text-base underline uppercase text-blue-950">KWITANSI PEMBAYARAN RESMI</h3>
         <p class="text-xs font-mono text-slate-600">No: ${tx.noKwitansi}</p>
       </div>
       <div class="text-right text-xs">
-        <span class="bg-brand-primary-soft text-brand-primary font-bold px-3 py-1 rounded border border-brand-soft">SAH / DITERIMA</span>
+        <span class="bg-sky-100 text-blue-950 font-bold px-3 py-1 rounded border border-sky-300">SAH / DITERIMA</span>
       </div>
     </div>
     <table class="w-full text-xs mb-4">
@@ -2136,8 +1971,8 @@ function openPrintKwitansi(txId) {
       <tr><td class="py-1 font-semibold">Kelas / Unit</td><td>: ${tx.sheet} (${tx.unit})</td></tr>
       <tr><td class="py-1 font-semibold">Metode Bayar</td><td>: ${tx.metode} ${tx.catatan ? '(' + tx.catatan + ')' : ''}</td></tr>
     </table>
-    <table class="w-full text-xs border border-slate-300 mb-3">
-      <thead class="bg-slate-100 border-b border-slate-300">
+    <table class="w-full text-xs border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
         <tr>
           <th class="py-2 px-3 w-12">No</th>
           <th class="py-2 px-3 text-left">Uraian Pembayaran</th>
@@ -2146,15 +1981,15 @@ function openPrintKwitansi(txId) {
         </tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot class="bg-brand-primary-soft font-bold border-t-2 border-brand-soft">
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
         <tr>
           <td colspan="2" class="py-2 px-3 text-right uppercase">Total Diterima</td>
-          <td class="py-2 px-3 text-right text-sm text-brand-primary">${formatRupiah(tx.totalPaid)}</td>
+          <td class="py-2 px-3 text-right text-sm text-blue-950">${formatRupiah(tx.totalPaid)}</td>
           <td></td>
         </tr>
       </tfoot>
     </table>
-    <div class="bg-slate-100 p-2.5 rounded text-xs italic border border-slate-200">
+    <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
       <strong>Terbilang:</strong> ${terbilang(tx.totalPaid)}
     </div>
     ${getSignatureHTML(tx.tanggal)}
@@ -2171,11 +2006,11 @@ function printRekapSummary() {
   document.getElementById('print-area').innerHTML = `
     ${getKopSuratHTML()}
     <div class="text-center mb-4">
-      <h3 class="font-bold text-base underline uppercase">LAPORAN REKAPITULASI TUNGGAKAN BIAYA PENDIDIKAN</h3>
+      <h3 class="font-bold text-base underline uppercase text-blue-950">LAPORAN REKAPITULASI TUNGGAKAN BIAYA PENDIDIKAN</h3>
       <p class="text-xs text-slate-600">Periode Cut-off: ${cutoffFilter === 'ALL' ? 'Semua Bulan' : 's.d. Bulan ' + cutoffFilter}</p>
     </div>
-    <table class="w-full text-xs border border-slate-300">
-      <thead class="bg-slate-100 border-b border-slate-300">
+    <table class="w-full text-xs border border-blue-200">
+      <thead class="bg-blue-950 text-white border-b border-blue-900">
         <tr>
           <th class="px-3 py-2">No</th>
           <th class="px-3 py-2 text-left">Kelas / Sheet</th>
@@ -2582,7 +2417,7 @@ function switchTab(tabName) {
     if (name === tabName) {
       btn.className = 'tab-btn btn-brand-primary px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition';
     } else {
-      btn.className = 'tab-btn bg-white text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 transition';
+      btn.className = 'tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition';
     }
   });
 
