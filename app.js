@@ -1,11 +1,27 @@
 // ============================================================================
 // SISTEM PENCATATAN & REKAPITULASI BIAYA PENDIDIKAN
-// INSTANSI : PONPES SIT AL FIRDAUS (SMPIT / SMAIT AL FIRDAUS)
+// INSTANSI : PONPES SIT AL FIRDAUS BANDARLAMPUNG (SMPIT / SMAIT AL FIRDAUS)
 // BENDAHARA: RESTASARI, S.Sos
 // ============================================================================
 
 const STORAGE_KEY_STUDENTS = 'alfirdaus_students_v1';
 const STORAGE_KEY_TX = 'alfirdaus_transactions_v1';
+const STORAGE_KEY_AUTH = 'alfirdaus_bendahara_auth_v1';
+const STORAGE_KEY_SESSION = 'alfirdaus_bendahara_session_v1';
+const STORAGE_KEY_THEME = 'alfirdaus_logo_theme_v1';
+
+// Link resmi logo Google Drive Ponpes SIT Al Firdaus Bandarlampung
+const DRIVE_FILE_ID = '1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_';
+const LOGO_URLS = [
+  `https://lh3.googleusercontent.com/d/${DRIVE_FILE_ID}`,
+  `https://drive.google.com/thumbnail?id=${DRIVE_FILE_ID}&sz=w500`,
+  `https://drive.google.com/uc?export=view&id=${DRIVE_FILE_ID}`
+];
+
+// Kredensial Default Bendahara (Password disimpan terenkripsi SHA-256)
+const DEFAULT_USERNAME = 'bendahara';
+const DEFAULT_PASSWORD_PLAINTEXT = 'alfirdaus2026';
+const INSTITUTION_RECOVERY_PIN = '1652026';
 
 const MONTH_ORDER = [
   'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
@@ -132,22 +148,387 @@ const INITIAL_SAMPLE_DATA = [
 ];
 
 // ============================================================================
-// INISIALISASI & PENYIMPANAN LOKAL
+// LOGO FALLBACK & EKSTRAKSI PALET WARNA OTOMATIS DARI LOGO
 // ============================================================================
-document.addEventListener('DOMContentLoaded', () => {
+function handleLogoFallback(imgEl) {
+  const attempt = Number(imgEl.getAttribute('data-attempt') || '0') + 1;
+  if (attempt < LOGO_URLS.length) {
+    imgEl.setAttribute('data-attempt', String(attempt));
+    imgEl.src = LOGO_URLS[attempt];
+  }
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0, l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+
+function hslToRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (h < 60) { r1 = c; g1 = x; }
+  else if (h < 120) { r1 = x; g1 = c; }
+  else if (h < 180) { g1 = c; b1 = x; }
+  else if (h < 240) { g1 = x; b1 = c; }
+  else if (h < 300) { r1 = x; b1 = c; }
+  else { r1 = c; b1 = x; }
+  return {
+    r: Math.round((r1 + m) * 255),
+    g: Math.round((g1 + m) * 255),
+    b: Math.round((b1 + m) * 255)
+  };
+}
+
+function extractAndApplyLogoTheme() {
+  const probe = new Image();
+  probe.crossOrigin = 'anonymous';
+  let urlIndex = 0;
+
+  probe.onload = function () {
+    try {
+      const canvas = document.createElement('canvas');
+      const size = 80;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(probe, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+
+      // Kelompokkan piksel berwarna ke dalam 12 sektor hue (30 derajat per sektor)
+      const buckets = Array.from({ length: 12 }, () => ({
+        weight: 0,
+        rSum: 0,
+        gSum: 0,
+        bSum: 0
+      }));
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        if (a < 140) continue;
+        // Abaikan latar putih & garis tepi hitam pekat
+        if (r > 235 && g > 235 && b > 235) continue;
+        if (r < 25 && g < 25 && b < 25) continue;
+
+        const { h, s, l } = rgbToHsl(r, g, b);
+        if (s < 0.22 || l < 0.08 || l > 0.92) continue;
+
+        const idx = Math.floor(h / 30) % 12;
+        const w = s * (1 - Math.abs(l - 0.45));
+        buckets[idx].weight += w;
+        buckets[idx].rSum += r * w;
+        buckets[idx].gSum += g * w;
+        buckets[idx].bSum += b * w;
+      }
+
+      const ranked = buckets
+        .map((b, idx) => ({
+          idx,
+          weight: b.weight,
+          r: b.weight > 0 ? b.rSum / b.weight : 0,
+          g: b.weight > 0 ? b.gSum / b.weight : 0,
+          b: b.weight > 0 ? b.bSum / b.weight : 0
+        }))
+        .filter((b) => b.weight > 0)
+        .sort((a, b) => b.weight - a.weight);
+
+      if (ranked.length === 0) return;
+
+      const primaryRaw = ranked[0];
+      const pHsl = rgbToHsl(primaryRaw.r, primaryRaw.g, primaryRaw.b);
+
+      // Pastikan kontras teks putih di atas warna utama selalu tajam (lightness maks 0.34)
+      const mainL = Math.min(0.34, Math.max(0.20, pHsl.l));
+      const mainS = Math.min(0.85, Math.max(0.45, pHsl.s));
+
+      const mainRgb = hslToRgb(pHsl.h, mainS, mainL);
+      const darkRgb = hslToRgb(pHsl.h, mainS, Math.max(0.11, mainL - 0.11));
+      const midRgb = hslToRgb(pHsl.h, mainS, Math.min(0.42, mainL + 0.07));
+      const softRgb = hslToRgb(pHsl.h, Math.min(0.55, mainS * 0.7), 0.96);
+      const borderRgb = hslToRgb(pHsl.h, Math.min(0.55, mainS * 0.75), 0.84);
+
+      // Cari warna aksen kedua yang berbeda sektor hue minimal 2 langkah
+      const secondaryRaw = ranked.find((b) => {
+        const diff = Math.min(Math.abs(b.idx - primaryRaw.idx), 12 - Math.abs(b.idx - primaryRaw.idx));
+        return diff >= 2;
+      });
+
+      let accentRgb, accentDarkRgb;
+      if (secondaryRaw) {
+        const sHsl = rgbToHsl(secondaryRaw.r, secondaryRaw.g, secondaryRaw.b);
+        const accL = Math.min(0.55, Math.max(0.42, sHsl.l));
+        const accS = Math.min(0.92, Math.max(0.60, sHsl.s));
+        accentRgb = hslToRgb(sHsl.h, accS, accL);
+        accentDarkRgb = hslToRgb(sHsl.h, accS, Math.max(0.32, accL - 0.09));
+      } else {
+        // Jika logo monokrom, gunakan aksen emas hangat yang harmonis
+        accentRgb = { r: 234, g: 179, b: 8 };
+        accentDarkRgb = { r: 202, g: 138, b: 4 };
+      }
+
+      const yiq = (accentRgb.r * 299 + accentRgb.g * 587 + accentRgb.b * 114) / 1000;
+      const accentText = yiq >= 150 ? '#0f172a' : '#ffffff';
+
+      const theme = {
+        primary: rgbToHex(mainRgb.r, mainRgb.g, mainRgb.b),
+        primaryDark: rgbToHex(darkRgb.r, darkRgb.g, darkRgb.b),
+        primaryMid: rgbToHex(midRgb.r, midRgb.g, midRgb.b),
+        primarySoft: rgbToHex(softRgb.r, softRgb.g, softRgb.b),
+        primaryBorder: rgbToHex(borderRgb.r, borderRgb.g, borderRgb.b),
+        accent: rgbToHex(accentRgb.r, accentRgb.g, accentRgb.b),
+        accentDark: rgbToHex(accentDarkRgb.r, accentDarkRgb.g, accentDarkRgb.b),
+        accentText
+      };
+
+      const rootStyle = document.documentElement.style;
+      rootStyle.setProperty('--brand-primary', theme.primary);
+      rootStyle.setProperty('--brand-primary-dark', theme.primaryDark);
+      rootStyle.setProperty('--brand-primary-mid', theme.primaryMid);
+      rootStyle.setProperty('--brand-primary-soft', theme.primarySoft);
+      rootStyle.setProperty('--brand-primary-border', theme.primaryBorder);
+      rootStyle.setProperty('--brand-accent', theme.accent);
+      rootStyle.setProperty('--brand-accent-dark', theme.accentDark);
+      rootStyle.setProperty('--brand-accent-text', theme.accentText);
+
+      localStorage.setItem(STORAGE_KEY_THEME, JSON.stringify(theme));
+    } catch (err) {
+      // Tetap gunakan warna default apabila browser memblokir canvas CORS
+    }
+  };
+
+  probe.onerror = function () {
+    urlIndex++;
+    if (urlIndex < LOGO_URLS.length) {
+      probe.src = LOGO_URLS[urlIndex];
+    }
+  };
+
+  probe.src = LOGO_URLS[0];
+}
+
+// ============================================================================
+// SISTEM AUTENTIKASI & PROTEKSI AKSES BENDAHARA
+// ============================================================================
+async function sha256Hex(text) {
+  if (window.crypto && window.crypto.subtle) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Fallback sederhana jika dijalankan di konteks HTTP non-localhost
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'fb_' + Math.abs(hash).toString(16);
+}
+
+async function ensureAuthInitialized() {
+  const existing = localStorage.getItem(STORAGE_KEY_AUTH);
+  if (!existing) {
+    const defaultHash = await sha256Hex(DEFAULT_PASSWORD_PLAINTEXT);
+    localStorage.setItem(
+      STORAGE_KEY_AUTH,
+      JSON.stringify({
+        username: DEFAULT_USERNAME,
+        passwordHash: defaultHash
+      })
+    );
+  }
+}
+
+function getAuthCredentials() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY_AUTH));
+  } catch (e) {
+    return null;
+  }
+}
+
+function isAuthenticated() {
+  const localToken = localStorage.getItem(STORAGE_KEY_SESSION);
+  const sessionToken = sessionStorage.getItem(STORAGE_KEY_SESSION);
+  return localToken === 'AUTHENTICATED' || sessionToken === 'AUTHENTICATED';
+}
+
+function showAuthenticatedApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-container').classList.remove('hidden');
+  initializeAppData();
+}
+
+function showLoginScreen() {
+  document.getElementById('app-container').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-error').classList.add('hidden');
+}
+
+async function handleLogin(event) {
+  event.preventDefault();
+  await ensureAuthInitialized();
+
+  const inputUser = document.getElementById('login-username').value.trim().toLowerCase();
+  const inputPass = document.getElementById('login-password').value;
+  const remember = document.getElementById('login-remember').checked;
+  const errBox = document.getElementById('login-error');
+  const errText = document.getElementById('login-error-text');
+
+  const stored = getAuthCredentials();
+  const inputHash = await sha256Hex(inputPass);
+
+  if (stored && inputUser === stored.username.toLowerCase() && inputHash === stored.passwordHash) {
+    errBox.classList.add('hidden');
+    if (remember) {
+      localStorage.setItem(STORAGE_KEY_SESSION, 'AUTHENTICATED');
+    } else {
+      sessionStorage.setItem(STORAGE_KEY_SESSION, 'AUTHENTICATED');
+    }
+    showAuthenticatedApp();
+  } else {
+    errText.textContent = 'Username atau Password salah. Akses ditolak.';
+    errBox.classList.remove('hidden');
+  }
+}
+
+function logoutBendahara() {
+  if (!confirm('Keluar dan kunci halaman keuangan sekarang?')) return;
+  localStorage.removeItem(STORAGE_KEY_SESSION);
+  sessionStorage.removeItem(STORAGE_KEY_SESSION);
+  showLoginScreen();
+}
+
+function togglePasswordVisibility(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  const icon = btn.querySelector('i');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.className = 'fa-solid fa-eye-slash';
+  } else {
+    inp.type = 'password';
+    icon.className = 'fa-solid fa-eye';
+  }
+}
+
+function openAccountModal() {
+  const stored = getAuthCredentials();
+  document.getElementById('acc-username').value = stored ? stored.username : DEFAULT_USERNAME;
+  document.getElementById('acc-old-password').value = '';
+  document.getElementById('acc-new-password').value = '';
+  document.getElementById('acc-confirm-password').value = '';
+  openModal('modal-account');
+}
+
+async function saveAccountCredentials(event) {
+  event.preventDefault();
+  await ensureAuthInitialized();
+
+  const newUsername = document.getElementById('acc-username').value.trim();
+  const oldPass = document.getElementById('acc-old-password').value;
+  const newPass = document.getElementById('acc-new-password').value;
+  const confirmPass = document.getElementById('acc-confirm-password').value;
+
+  if (!newUsername) {
+    alert('Username wajib diisi.');
+    return;
+  }
+  if (newPass !== confirmPass) {
+    alert('Konfirmasi password baru tidak cocok.');
+    return;
+  }
+
+  const stored = getAuthCredentials();
+  const oldHash = await sha256Hex(oldPass);
+  if (!stored || oldHash !== stored.passwordHash) {
+    alert('Password lama yang Anda masukkan salah.');
+    return;
+  }
+
+  const newHash = await sha256Hex(newPass);
+  localStorage.setItem(
+    STORAGE_KEY_AUTH,
+    JSON.stringify({
+      username: newUsername,
+      passwordHash: newHash
+    })
+  );
+
+  closeModal('modal-account');
+  alert(`Username & Password berhasil diperbarui!\nUsername aktif sekarang: ${newUsername}`);
+}
+
+async function openResetPasswordPrompt() {
+  const pin = prompt('Masukkan Kode Pemulihan Instansi untuk mereset akun ke pengaturan awal:');
+  if (pin === null) return;
+  if (pin.trim() === INSTITUTION_RECOVERY_PIN) {
+    const defaultHash = await sha256Hex(DEFAULT_PASSWORD_PLAINTEXT);
+    localStorage.setItem(
+      STORAGE_KEY_AUTH,
+      JSON.stringify({
+        username: DEFAULT_USERNAME,
+        passwordHash: defaultHash
+      })
+    );
+    alert(`Akun berhasil direset!\nUsername: ${DEFAULT_USERNAME}\nPassword: ${DEFAULT_PASSWORD_PLAINTEXT}`);
+  } else {
+    alert('Kode pemulihan salah.');
+  }
+}
+
+// ============================================================================
+// INISIALISASI HALAMAN & PENYIMPANAN LOKAL
+// ============================================================================
+let appInitialized = false;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  extractAndApplyLogoTheme();
+  await ensureAuthInitialized();
+
+  if (isAuthenticated()) {
+    showAuthenticatedApp();
+  } else {
+    showLoginScreen();
+  }
+});
+
+function initializeAppData() {
   loadData();
   populateSheetFilter();
   renderTable();
   renderIndukTab();
   renderRiwayat();
 
-  document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
-  document.getElementById('json-restore').addEventListener('change', handleJSONRestore);
-  document.getElementById('newclass-source').addEventListener('change', (e) => {
-    const optBox = document.getElementById('newclass-migration-options');
-    optBox.classList.toggle('hidden', !e.target.value);
-  });
-});
+  if (!appInitialized) {
+    document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
+    document.getElementById('json-restore').addEventListener('change', handleJSONRestore);
+    document.getElementById('newclass-source').addEventListener('change', (e) => {
+      const optBox = document.getElementById('newclass-migration-options');
+      optBox.classList.toggle('hidden', !e.target.value);
+    });
+    appInitialized = true;
+  }
+}
 
 function loadData() {
   const savedStudents = localStorage.getItem(STORAGE_KEY_STUDENTS);
@@ -243,7 +624,6 @@ function getSemesterLabel(smtCode) {
   return 'Umum';
 }
 
-// Urutan kronologis sheet untuk profil lintas semester
 function getSheetChronologicalRank(sheetName) {
   const s = String(sheetName || '').toLowerCase();
   const isAlumni = s.startsWith('a.') || s.includes('alumni');
@@ -262,7 +642,6 @@ function getSheetChronologicalRank(sheetName) {
   return 500;
 }
 
-// Normalisasi label pos tetap untuk mendeteksi duplikat / carry-over antar semester
 function normalizeFixedFeeKey(label) {
   const l = String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
   if (l === 'u. pangkal' || l === 'uang pangkal') return 'uang_pangkal';
@@ -307,10 +686,9 @@ function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
   });
 
   const profiles = Object.values(map).map((prof) => {
-    // Urutkan riwayat kelas secara kronologis
     prof.records.sort((a, b) => getSheetChronologicalRank(a.sheet) - getSheetChronologicalRank(b.sheet));
 
-    const seenFixedKeys = {}; // key -> { sheet, amount }
+    const seenFixedKeys = {};
     const sheetSummaries = [];
     let cleanTotal = 0;
     let rawTotal = 0;
@@ -335,19 +713,15 @@ function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
         if (dedupMode === 'DEDUP' && fee.type === 'fixed') {
           const fixedKey = normalizeFixedFeeKey(fee.label);
 
-          // 1. Cek apakah pos rekap bawaan semester 1 (seperti "smt 1 + U. Pangkal" atau "Sisa 7 smt 1")
           if (hasEarlierSheet && isCarryOverSummaryLabel(fee.label)) {
             isDuplicate = true;
             duplicateReason = `Rekap bawaan dari ${prof.records[recIdx - 1].sheet}`;
-          }
-          // 2. Cek apakah pos tetap yang sama sudah tercatat di semester sebelumnya
-          else if (seenFixedKeys[fixedKey]) {
+          } else if (seenFixedKeys[fixedKey]) {
             const prev = seenFixedKeys[fixedKey];
             if (amt <= prev.amount) {
               isDuplicate = true;
               duplicateReason = `Sudah tercatat di ${prev.sheet}`;
             } else {
-              // Jika nominal di semester baru lebih besar, pos lama dianggap superseded
               prev.itemRef.isDuplicate = true;
               prev.itemRef.duplicateReason = `Diperbarui di ${rec.sheet}`;
               prev.sheetSummaryRef.cleanSum -= prev.amount;
@@ -408,7 +782,6 @@ function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
         rawSum: sheetRawSum
       };
 
-      // Tautkan referensi summaryObj ke seenFixedKeys agar penyesuaian nominal mundur akurat
       Object.values(seenFixedKeys).forEach((entry) => {
         if (entry.sheet === rec.sheet && !entry.sheetSummaryRef) {
           entry.sheetSummaryRef = summaryObj;
@@ -438,7 +811,6 @@ function buildUnifiedStudentProfiles(dedupMode = 'DEDUP') {
   return profiles.sort((a, b) => a.displayName.localeCompare(b.displayName, 'id'));
 }
 
-// Sinkronisasi otomatis pengurangan pos carry-over / duplikat antar sheet milik santri yang sama
 function syncLinkedStudentFees(sourceStudent, paidFeeLabel, paidAmount) {
   if (paidAmount <= 0) return [];
   const normName = normalizeStudentName(sourceStudent.nama);
@@ -456,9 +828,7 @@ function syncLinkedStudentFees(sourceStudent, paidFeeLabel, paidAmount) {
     sib.fees.forEach((f, idx) => {
       if (f.amount <= 0 || f.type !== 'fixed') return;
 
-      // 1. Pos tetap identik di semester berdekatan (misal Uang Pangkal di 12 smt 1 & 12 smt 2)
       const sameFixed = normalizeFixedFeeKey(f.label) === paidNormKey;
-      // 2. Pos rekap carry-over di semester berikutnya (misal "smt 1 + U. Pangkal" di 7 smt 2 saat 7 smt 1 dibayar)
       const isLaterCarryOver = sibRank > sourceRank && isCarryOverSummaryLabel(f.label);
 
       if (sameFixed || isLaterCarryOver) {
@@ -719,7 +1089,6 @@ function renderTable() {
   const statusFilter = document.getElementById('filter-status').value;
   const searchFilter = document.getElementById('filter-search').value.toLowerCase().trim();
 
-  // Hitung berapa sheet yang dimiliki setiap nama santri untuk indikator Lintas Semester
   const nameSheetCounts = {};
   students.forEach((s) => {
     const norm = normalizeStudentName(s.nama);
@@ -770,10 +1139,10 @@ function renderTable() {
 
     const badgesHtml = activeItems.length > 0
       ? activeItems.map((it) => `<span class="inline-block bg-rose-50 text-rose-700 border border-rose-200 text-[11px] px-2 py-0.5 rounded mr-1 mb-1">${it.label}: <b>${formatRupiah(it.amount)}</b></span>`).join('')
-      : '<span class="text-xs text-emerald-600 italic">Tidak ada tunggakan</span>';
+      : '<span class="text-xs text-brand-primary italic">Tidak ada tunggakan</span>';
 
     const statusBadge = total === 0
-      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">LUNAS</span>'
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-primary-soft text-brand-primary border border-brand-soft">LUNAS</span>'
       : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">MENUNGGAK</span>';
 
     const tr = document.createElement('tr');
@@ -796,11 +1165,11 @@ function renderTable() {
       </td>
       <td class="px-4 py-3 text-right font-medium text-slate-600">${formatRupiah(st.sppDasar)}</td>
       <td class="px-4 py-3 max-w-xs">${badgesHtml}</td>
-      <td class="px-4 py-3 text-right font-bold ${total > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatRupiah(total)}</td>
+      <td class="px-4 py-3 text-right font-bold ${total > 0 ? 'text-rose-600' : 'text-brand-primary'}">${formatRupiah(total)}</td>
       <td class="px-4 py-3 text-center">${statusBadge}</td>
       <td class="px-4 py-3">
         <div class="flex items-center justify-center gap-1">
-          <button onclick="openBayarModal('${st.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2 py-1.5 rounded-lg font-semibold" title="Catat Pembayaran Kelas Ini">
+          <button onclick="openBayarModal('${st.id}')" class="btn-brand-primary text-xs px-2 py-1.5 rounded-lg font-semibold" title="Catat Pembayaran Kelas Ini">
             <i class="fa-solid fa-cash-register"></i> Bayar
           </button>
           <button onclick="openIndukDetailModal('${escapedNorm}')" class="bg-purple-600 hover:bg-purple-700 text-white text-xs px-2 py-1.5 rounded-lg font-semibold" title="Buka Kartu Induk Gabungan Lintas Semester">
@@ -896,11 +1265,11 @@ function renderRekap() {
     };
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
-      <td class="px-4 py-3 font-bold text-emerald-800 underline">${g.sheet}</td>
+      <td class="px-4 py-3 font-bold text-brand-primary underline">${g.sheet}</td>
       <td class="px-4 py-3 text-slate-600">${g.unit}</td>
       <td class="px-4 py-3 text-xs font-semibold text-slate-600">${g.semester}</td>
       <td class="px-4 py-3 text-center">${g.totalSantri}</td>
-      <td class="px-4 py-3 text-center text-emerald-700 font-semibold">${g.lunas}</td>
+      <td class="px-4 py-3 text-center text-brand-primary font-semibold">${g.lunas}</td>
       <td class="px-4 py-3 text-center text-rose-600 font-semibold">${g.menunggak}</td>
       <td class="px-4 py-3 text-right font-bold text-slate-800">${formatRupiah(g.nominal)}</td>
     `;
@@ -959,28 +1328,26 @@ function renderIndukTab() {
 
     const escapedNorm = p.normName.replace(/'/g, "\\'");
 
-    // Rantai riwayat kelas/semester
     const chainHtml = p.sheetSummaries
-      .map((s) => `<span class="inline-block bg-purple-50 text-purple-900 border border-purple-200 text-[11px] font-bold px-2 py-0.5 rounded">${s.sheet}</span>`)
+      .map((s) => `<span class="inline-block bg-brand-primary-soft text-brand-primary border border-brand-soft text-[11px] font-bold px-2 py-0.5 rounded">${s.sheet}</span>`)
       .join(' <i class="fa-solid fa-arrow-right text-[9px] text-slate-400 mx-0.5"></i> ');
 
-    // Ringkasan nominal per semester
     const breakdownHtml = p.sheetSummaries
       .map((s) => {
         const subVal = dedupMode === 'DEDUP' ? s.cleanSum : s.rawSum;
         return `<div class="text-xs flex items-center justify-between gap-3 py-0.5 border-b border-slate-100 last:border-0">
           <span class="text-slate-600 font-medium">${s.sheet}:</span>
-          <span class="font-bold ${subVal > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatRupiah(subVal)}</span>
+          <span class="font-bold ${subVal > 0 ? 'text-rose-600' : 'text-brand-primary'}">${formatRupiah(subVal)}</span>
         </div>`;
       })
       .join('');
 
     const statusBadge = totalVal === 0
-      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">LUNAS</span>'
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-primary-soft text-brand-primary border border-brand-soft">LUNAS</span>'
       : '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">MENUNGGAK</span>';
 
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-purple-50/40 transition';
+    tr.className = 'hover:bg-slate-50 transition';
     tr.innerHTML = `
       <td class="px-4 py-3 text-slate-500">${idx + 1}</td>
       <td class="px-4 py-3">
@@ -991,14 +1358,14 @@ function renderIndukTab() {
       <td class="px-4 py-3">
         <div class="flex flex-wrap items-center gap-y-1">${chainHtml}</div>
         ${p.duplicatedAmount > 0 && dedupMode === 'DEDUP'
-          ? `<div class="text-[10px] text-purple-700 mt-1"><i class="fa-solid fa-shield-halved mr-1"></i>Anti-ganda: ${formatRupiah(p.duplicatedAmount)} pos bawaan disesuaikan</div>`
+          ? `<div class="text-[10px] text-brand-primary mt-1"><i class="fa-solid fa-shield-halved mr-1"></i>Anti-ganda: ${formatRupiah(p.duplicatedAmount)} pos bawaan disesuaikan</div>`
           : ''}
       </td>
       <td class="px-4 py-3 min-w-[190px]">${breakdownHtml}</td>
-      <td class="px-4 py-3 text-right font-extrabold text-sm ${totalVal > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatRupiah(totalVal)}</td>
+      <td class="px-4 py-3 text-right font-extrabold text-sm ${totalVal > 0 ? 'text-rose-600' : 'text-brand-primary'}">${formatRupiah(totalVal)}</td>
       <td class="px-4 py-3 text-center">${statusBadge}</td>
       <td class="px-4 py-3 text-center">
-        <button onclick="openIndukDetailModal('${escapedNorm}')" class="bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
+        <button onclick="openIndukDetailModal('${escapedNorm}')" class="btn-brand-primary text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
           <i class="fa-solid fa-id-card mr-1"></i>Buka Kartu Induk
         </button>
       </td>
@@ -1037,7 +1404,7 @@ function refreshIndukDetailModal() {
 
   const noteEl = document.getElementById('induk-modal-dedup-note');
   if (mode === 'DEDUP' && prof.duplicatedAmount > 0) {
-    noteEl.innerHTML = `<i class="fa-solid fa-circle-info text-purple-700 mr-1"></i>Pos bawaan/duplikat lintas semester sebesar <b>${formatRupiah(prof.duplicatedAmount)}</b> otomatis dikecualikan agar tidak tertagih ganda.`;
+    noteEl.innerHTML = `<i class="fa-solid fa-circle-info text-brand-primary mr-1"></i>Pos bawaan/duplikat lintas semester sebesar <b>${formatRupiah(prof.duplicatedAmount)}</b> otomatis dikecualikan agar tidak tertagih ganda.`;
   } else if (prof.sheetCount > 1) {
     noteEl.textContent = 'Seluruh pos dari semua semester telah digabungkan secara kronologis.';
   } else {
@@ -1063,7 +1430,7 @@ function refreshIndukDetailModal() {
               ${formatRupiah(it.amount)}
             </td>
           </tr>`).join('')
-      : `<tr><td colspan="2" class="px-3 py-3 text-center text-xs text-emerald-700 font-semibold">Alhamdulillah, seluruh pos di kelas ini sudah LUNAS</td></tr>`;
+      : `<tr><td colspan="2" class="px-3 py-3 text-center text-xs text-brand-primary font-semibold">Alhamdulillah, seluruh pos di kelas ini sudah LUNAS</td></tr>`;
 
     card.innerHTML = `
       <div class="bg-slate-100 px-3.5 py-2.5 flex items-center justify-between border-b border-slate-200">
@@ -1072,7 +1439,7 @@ function refreshIndukDetailModal() {
           <span class="text-[11px] text-slate-500 ml-1.5">(${sh.unit} &bull; SPP: ${formatRupiah(sh.sppDasar)})</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-xs font-bold ${subTotal > 0 ? 'text-rose-700' : 'text-emerald-700'}">Subtotal: ${formatRupiah(subTotal)}</span>
+          <span class="text-xs font-bold ${subTotal > 0 ? 'text-rose-700' : 'text-brand-primary'}">Subtotal: ${formatRupiah(subTotal)}</span>
           <button onclick="openEditModal('${sh.studentId}'); closeModal('modal-induk');" class="text-[11px] bg-white hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded border border-slate-300" title="Edit Pos Kelas Ini">
             <i class="fa-solid fa-pen"></i>
           </button>
@@ -1171,7 +1538,7 @@ function openPrintInduk() {
     ${getKopSuratHTML()}
     <div class="text-center mb-4">
       <h3 class="font-bold text-base underline uppercase">KARTU INDUK REKAPITULASI BIAYA PENDIDIKAN</h3>
-      <p class="text-xs text-slate-600">Rekap Gabungan Lintas Semester & Jenjang</p>
+      <p class="text-xs text-slate-600">Rekap Gabungan Lintas Semester &amp; Jenjang</p>
     </div>
     <table class="w-full text-xs mb-4">
       <tr><td class="py-1 w-40 font-semibold">Nama Santri</td><td>: <strong>${prof.displayName}</strong></td></tr>
@@ -1226,14 +1593,14 @@ function openBayarGabunganModal() {
 
     const groupDiv = document.createElement('div');
     groupDiv.className = 'bg-white border border-slate-200 rounded-xl p-2.5 space-y-1.5';
-    groupDiv.innerHTML = `<div class="text-xs font-bold text-purple-900 border-b border-slate-100 pb-1">${sh.sheet} (${sh.unit})</div>`;
+    groupDiv.innerHTML = `<div class="text-xs font-bold text-brand-primary border-b border-slate-100 pb-1">${sh.sheet} (${sh.unit})</div>`;
 
     sh.items.forEach((it) => {
       const row = document.createElement('div');
       row.className = `flex items-center justify-between gap-2 p-1.5 rounded ${it.isDuplicate ? 'bg-amber-50/70' : ''}`;
       row.innerHTML = `
         <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1">
-          <input type="checkbox" class="bayar-gab-check w-4 h-4 accent-emerald-600"
+          <input type="checkbox" class="bayar-gab-check w-4 h-4"
             data-student-id="${it.studentId}"
             data-fee-idx="${it.feeIndex}"
             data-max="${it.amount}"
@@ -1258,7 +1625,7 @@ function openBayarGabunganModal() {
   });
 
   if (!hasUnpaid) {
-    container.innerHTML = '<p class="text-xs text-emerald-700 font-semibold text-center py-4">Seluruh tagihan lintas semester santri ini sudah LUNAS!</p>';
+    container.innerHTML = '<p class="text-xs text-brand-primary font-semibold text-center py-4">Seluruh tagihan lintas semester santri ini sudah LUNAS!</p>';
   }
 
   recalcBayarGabTotal();
@@ -1319,7 +1686,6 @@ function submitPembayaranGabungan() {
           totalPaid += actualPay;
           touchedSheets.add(st.sheet);
 
-          // Sinkronkan pengurangan ke pos carry-over / duplikat di sheet lain
           const syncs = syncLinkedStudentFees(st, st.fees[fidx].label, actualPay);
           allSyncedAdjustments.push(...syncs);
 
@@ -1383,14 +1749,14 @@ function openBayarModal(studentId) {
   const unpaidFees = st.fees.map((f, idx) => ({ ...f, idx })).filter((f) => f.amount > 0);
 
   if (unpaidFees.length === 0) {
-    listContainer.innerHTML = '<p class="text-xs text-emerald-700 font-semibold text-center py-3">Seluruh tagihan santri ini sudah LUNAS!</p>';
+    listContainer.innerHTML = '<p class="text-xs text-brand-primary font-semibold text-center py-3">Seluruh tagihan santri ini sudah LUNAS!</p>';
   } else {
     unpaidFees.forEach((f) => {
       const row = document.createElement('div');
       row.className = 'flex items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-slate-200';
       row.innerHTML = `
         <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1">
-          <input type="checkbox" class="bayar-check w-4 h-4 accent-emerald-600" data-idx="${f.idx}" data-max="${f.amount}" onchange="toggleBayarItem(this)" />
+          <input type="checkbox" class="bayar-check w-4 h-4" data-idx="${f.idx}" data-max="${f.amount}" onchange="toggleBayarItem(this)" />
           <span>${f.label} <span class="text-slate-400 font-normal">(Sisa: ${formatRupiah(f.amount)})</span></span>
         </label>
         <input type="number" class="bayar-amount w-32 border border-slate-300 rounded px-2 py-1 text-xs text-right font-semibold" data-idx="${f.idx}" max="${f.amount}" min="0" value="0" oninput="recalcBayarTotal()" />
@@ -1498,7 +1864,6 @@ function cancelTransaction(txId) {
     return;
   }
 
-  // Kembalikan pos utama
   tx.details.forEach((d) => {
     const targetSid = d.studentId || tx.studentId;
     const st = students.find((s) => s.id === targetSid);
@@ -1512,7 +1877,6 @@ function cancelTransaction(txId) {
     }
   });
 
-  // Kembalikan pos yang tersinkronisasi di sheet lain
   if (Array.isArray(tx.syncedAdjustments)) {
     tx.syncedAdjustments.forEach((adj) => {
       const st = students.find((s) => s.id === adj.studentId);
@@ -1543,12 +1907,12 @@ function renderRiwayat() {
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-slate-50';
     tr.innerHTML = `
-      <td class="px-4 py-3 font-mono text-xs font-bold text-emerald-800">${tx.noKwitansi}</td>
+      <td class="px-4 py-3 font-mono text-xs font-bold text-brand-primary">${tx.noKwitansi}</td>
       <td class="px-4 py-3 text-xs text-slate-600">${tx.tanggal}</td>
       <td class="px-4 py-3 font-bold text-slate-800">${tx.nama}</td>
       <td class="px-4 py-3 text-xs"><span class="bg-slate-100 px-2 py-0.5 rounded font-semibold">${tx.sheet}</span></td>
       <td class="px-4 py-3 text-xs text-slate-600">${detailStr}</td>
-      <td class="px-4 py-3 text-right font-bold text-emerald-700">${formatRupiah(tx.totalPaid)}</td>
+      <td class="px-4 py-3 text-right font-bold text-brand-primary">${formatRupiah(tx.totalPaid)}</td>
       <td class="px-4 py-3 text-center">
         <div class="flex items-center justify-center gap-1.5">
           <button onclick="openPrintKwitansi('${tx.id}')" class="bg-slate-700 hover:bg-slate-800 text-white text-xs px-2.5 py-1 rounded" title="Cetak Kwitansi">
@@ -1656,15 +2020,23 @@ function sendWANow() {
 }
 
 // ============================================================================
-// CETAK / SAVE PDF SURAT TAGIHAN & KWITANSI RESMI
+// CETAK / SAVE PDF SURAT TAGIHAN & KWITANSI RESMI (DENGAN LOGO RESMI)
 // ============================================================================
 function getKopSuratHTML() {
   return `
-    <div class="border-b-4 border-double border-slate-800 pb-3 mb-4 text-center">
-      <p class="text-xs font-semibold tracking-widest uppercase text-emerald-800">Yayasan Pendidikan Islam Terpadu</p>
-      <h2 class="text-xl font-extrabold tracking-wide text-slate-900">PONPES SIT AL FIRDAUS</h2>
-      <p class="text-xs font-semibold text-slate-700">UNIT SMPIT AL FIRDAUS &bull; UNIT SMAIT AL FIRDAUS</p>
-      <p class="text-[11px] text-slate-500 mt-0.5">Administrasi Keuangan &amp; Tata Usaha Bendahara</p>
+    <div class="border-b-4 border-double border-slate-800 pb-3 mb-4 flex items-center justify-center gap-4">
+      <img
+        src="https://lh3.googleusercontent.com/d/1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_"
+        onerror="handleLogoFallback(this)"
+        alt="Logo Ponpes SIT Al Firdaus"
+        class="w-16 h-16 object-contain shrink-0"
+      />
+      <div class="text-center">
+        <p class="text-[11px] font-semibold tracking-widest uppercase text-brand-primary">Yayasan Pendidikan Islam Terpadu</p>
+        <h2 class="text-xl font-extrabold tracking-wide text-slate-900">PONPES SIT AL FIRDAUS BANDARLAMPUNG</h2>
+        <p class="text-xs font-semibold text-slate-700">UNIT SMPIT AL FIRDAUS &bull; UNIT SMAIT AL FIRDAUS</p>
+        <p class="text-[11px] text-slate-500 mt-0.5">Administrasi Keuangan &amp; Tata Usaha Bendahara</p>
+      </div>
     </div>
   `;
 }
@@ -1673,7 +2045,7 @@ function getSignatureHTML(tanggalStr) {
   return `
     <div class="mt-8 flex justify-end">
       <div class="text-center text-xs w-56">
-        <p>${tanggalStr}</p>
+        <p>Bandarlampung, ${tanggalStr}</p>
         <p class="font-semibold mt-0.5">Bendahara Ponpes SIT Al Firdaus,</p>
         <div class="h-16 flex items-center justify-center text-slate-300 italic text-[10px]">
           (Cap &amp; Tanda Tangan Resmi)
@@ -1699,7 +2071,7 @@ function openPrintTagihan(studentId) {
           <td class="py-2 px-3">${it.label}</td>
           <td class="py-2 px-3 text-right font-semibold">${formatRupiah(it.amount)}</td>
         </tr>`).join('')
-    : `<tr><td colspan="3" class="py-4 text-center text-emerald-700 font-semibold">Alhamdulillah, Tidak Ada Tunggakan (LUNAS)</td></tr>`;
+    : `<tr><td colspan="3" class="py-4 text-center text-brand-primary font-semibold">Alhamdulillah, Tidak Ada Tunggakan (LUNAS)</td></tr>`;
 
   document.getElementById('print-area').innerHTML = `
     ${getKopSuratHTML()}
@@ -1756,7 +2128,7 @@ function openPrintKwitansi(txId) {
         <p class="text-xs font-mono text-slate-600">No: ${tx.noKwitansi}</p>
       </div>
       <div class="text-right text-xs">
-        <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded border border-emerald-300">SAH / DITERIMA</span>
+        <span class="bg-brand-primary-soft text-brand-primary font-bold px-3 py-1 rounded border border-brand-soft">SAH / DITERIMA</span>
       </div>
     </div>
     <table class="w-full text-xs mb-4">
@@ -1774,10 +2146,10 @@ function openPrintKwitansi(txId) {
         </tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot class="bg-emerald-50 font-bold border-t-2 border-emerald-400">
+      <tfoot class="bg-brand-primary-soft font-bold border-t-2 border-brand-soft">
         <tr>
           <td colspan="2" class="py-2 px-3 text-right uppercase">Total Diterima</td>
-          <td class="py-2 px-3 text-right text-sm text-emerald-900">${formatRupiah(tx.totalPaid)}</td>
+          <td class="py-2 px-3 text-right text-sm text-brand-primary">${formatRupiah(tx.totalPaid)}</td>
           <td></td>
         </tr>
       </tfoot>
@@ -1929,7 +2301,6 @@ function saveStudentEdit() {
     });
   }
 
-  // Sinkronkan WA ke seluruh sheet milik santri dengan nama yang sama
   if (wa) {
     const norm = normalizeStudentName(nama);
     students.forEach((s) => {
@@ -2160,7 +2531,7 @@ function exportToExcel() {
 
 function backupJSON() {
   const payload = {
-    instansi: 'Ponpes SIT Al Firdaus',
+    instansi: 'Ponpes SIT Al Firdaus Bandarlampung',
     bendahara: 'Restasari, S.Sos',
     exportedAt: new Date().toISOString(),
     students,
@@ -2209,13 +2580,12 @@ function switchTab(tabName) {
     document.getElementById(`view-${name}`).classList.toggle('hidden', name !== tabName);
     const btn = document.getElementById(`tab-${name}`);
     if (name === tabName) {
-      btn.className = 'tab-btn bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition';
+      btn.className = 'tab-btn btn-brand-primary px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition';
     } else {
       btn.className = 'tab-btn bg-white text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 transition';
     }
   });
 
-  // Filter bar kelas/semester hanya aktif pada tab Data Tagihan & Rekapitulasi
   const showGlobalFilter = tabName === 'tagihan' || tabName === 'rekap';
   document.getElementById('global-filter-bar').classList.toggle('hidden', !showGlobalFilter);
 }
