@@ -242,6 +242,11 @@
             <span>Export Rekap</span>
           </button>
 
+          <button onclick="openSettingsModal()" class="bg-white/15 hover:bg-sky-500/30 text-white font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 border border-sky-300/30" title="Pengaturan Rekening & Info Tagihan">
+            <i class="fa-solid fa-gear text-sky-300"></i>
+            <span>Rekening</span>
+          </button>
+
           <button onclick="openAccountModal()" class="bg-white/15 hover:bg-sky-500/30 text-white font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 border border-sky-300/30" title="Ubah Password Akun Bendahara">
             <i class="fa-solid fa-user-shield text-sky-300"></i>
             <span>Akun</span>
@@ -282,74 +287,89 @@
         </div>
       </div>
 
-      <!-- Ringkasan Statistik -->
-      <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <!-- Ringkasan Statistik (5 Kartu: Santri, Lunas, Menunggak, Tunggakan, Kas Masuk Real-Time) -->
+      <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 mb-6">
         <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
-            <p class="text-xs font-medium text-slate-500 uppercase">Total Data Santri</p>
+            <p class="text-[11px] font-semibold text-slate-500 uppercase">Total Data Santri</p>
             <span class="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center"><i class="fa-solid fa-users"></i></span>
           </div>
           <p id="stat-total-santri" class="text-2xl font-bold text-blue-950 mt-2">0</p>
-          <p id="stat-kelas-aktif" class="text-xs text-slate-500 mt-1">Semua Kelas / Unit</p>
+          <p id="stat-kelas-aktif" class="text-[11px] text-slate-500 mt-1 truncate">Semua Kelas / Unit</p>
         </div>
 
         <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
-            <p class="text-xs font-medium text-slate-500 uppercase">Santri Lunas (s.d Cut-off)</p>
+            <p class="text-[11px] font-semibold text-slate-500 uppercase">Santri Lunas</p>
             <span class="w-8 h-8 rounded-lg bg-blue-100 text-blue-900 flex items-center justify-center"><i class="fa-solid fa-circle-check"></i></span>
           </div>
           <p id="stat-lunas" class="text-2xl font-bold text-blue-900 mt-2">0</p>
-          <p class="text-xs text-slate-500 mt-1">Tidak ada tunggakan berjalan</p>
+          <p class="text-[11px] text-slate-500 mt-1">Tidak ada tunggakan</p>
         </div>
 
         <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
-            <p class="text-xs font-medium text-slate-500 uppercase">Santri Menunggak</p>
+            <p class="text-[11px] font-semibold text-slate-500 uppercase">Santri Menunggak</p>
             <span class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><i class="fa-solid fa-clock-rotate-left"></i></span>
           </div>
           <p id="stat-menunggak" class="text-2xl font-bold text-rose-600 mt-2">0</p>
-          <p class="text-xs text-slate-500 mt-1">Perlu penagihan ke wali santri</p>
+          <p class="text-[11px] text-slate-500 mt-1">Perlu penagihan wali</p>
         </div>
 
         <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
-            <p class="text-xs font-medium text-slate-500 uppercase">Total Tunggakan</p>
+            <p class="text-[11px] font-semibold text-slate-500 uppercase">Total Tunggakan</p>
             <span class="w-8 h-8 rounded-lg bg-sky-100 text-blue-900 flex items-center justify-center"><i class="fa-solid fa-rupiah-sign"></i></span>
           </div>
-          <p id="stat-total-tunggakan" class="text-xl font-bold text-blue-950 mt-2">Rp 0</p>
-          <p id="stat-cutoff-label" class="text-xs text-slate-500 mt-1">Cut-off: Semua Bulan</p>
+          <p id="stat-total-tunggakan" class="text-lg font-extrabold text-rose-700 mt-2">Rp 0</p>
+          <p id="stat-cutoff-label" class="text-[11px] text-slate-500 mt-1">Cut-off: Semua Bulan</p>
+        </div>
+
+        <div class="bg-gradient-to-br from-blue-950 to-blue-900 text-white p-4 rounded-xl shadow-sm border border-sky-400/30">
+          <div class="flex items-center justify-between">
+            <p class="text-[11px] font-semibold text-sky-200 uppercase">Kas Masuk (Cloud)</p>
+            <span class="w-8 h-8 rounded-lg bg-sky-400/20 text-sky-300 flex items-center justify-center"><i class="fa-solid fa-vault"></i></span>
+          </div>
+          <p id="stat-kas-total" class="text-lg font-extrabold text-white mt-2">Rp 0</p>
+          <p id="stat-kas-hari-ini" class="text-[11px] text-sky-200 mt-1">Hari ini: Rp 0</p>
         </div>
       </section>
 
       <!-- Navigation Tabs & Management Controls -->
       <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-4 border-b border-blue-200 pb-3">
         <div class="flex flex-wrap gap-2">
-          <button onclick="switchTab('tagihan')" id="tab-tagihan" class="tab-btn btn-brand-primary px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition">
-            <i class="fa-solid fa-table-list mr-1.5"></i>Data Tagihan Santri
+          <button onclick="switchTab('tagihan')" id="tab-tagihan" class="tab-btn btn-brand-primary px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition">
+            <i class="fa-solid fa-table-list mr-1.5"></i>Data Tagihan
           </button>
-          <button onclick="switchTab('induk')" id="tab-induk" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition">
-            <i class="fa-solid fa-id-card mr-1.5 text-sky-600"></i>Kartu Induk Santri (<span id="badge-induk">0</span>)
+          <button onclick="switchTab('induk')" id="tab-induk" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-id-card mr-1.5 text-sky-600"></i>Kartu Induk (<span id="badge-induk">0</span>)
           </button>
-          <button onclick="switchTab('rekap')" id="tab-rekap" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition">
-            <i class="fa-solid fa-chart-pie mr-1.5 text-sky-600"></i>Rekapitulasi per Kelas
+          <button onclick="switchTab('rekap')" id="tab-rekap" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-chart-pie mr-1.5 text-sky-600"></i>Rekap Kelas
           </button>
-          <button onclick="switchTab('riwayat')" id="tab-riwayat" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition">
-            <i class="fa-solid fa-receipt mr-1.5 text-sky-600"></i>Riwayat Pembayaran (<span id="badge-transaksi">0</span>)
+          <button onclick="switchTab('riwayat')" id="tab-riwayat" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-receipt mr-1.5 text-sky-600"></i>Riwayat Kas (<span id="badge-transaksi">0</span>)
+          </button>
+          <button onclick="switchTab('audit')" id="tab-audit" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-shield-halved mr-1.5 text-sky-600"></i>Jejak Audit (<span id="badge-audit">0</span>)
           </button>
         </div>
 
         <div class="flex flex-wrap items-center gap-2 text-xs">
+          <button onclick="openBulkWAModal()" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-3 py-2 rounded-lg transition shadow-sm" title="Kirim pengingat tagihan WhatsApp berurutan ke wali santri yang menunggak">
+            <i class="fa-brands fa-whatsapp mr-1"></i>Antrean WA Massal
+          </button>
           <button onclick="openAddStudentModal()" class="btn-brand-primary font-semibold px-3 py-2 rounded-lg transition shadow-sm">
             <i class="fa-solid fa-user-plus mr-1"></i>Tambah Santri
           </button>
           <button onclick="openNewClassModal()" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-3 py-2 rounded-lg transition shadow-sm" title="Buat kelas baru atau salin data ke semester berikutnya">
-            <i class="fa-solid fa-layer-group mr-1"></i>Buat Kelas / Semester
+            <i class="fa-solid fa-layer-group mr-1"></i>Buat Kelas / Smt
           </button>
           <button onclick="backupJSON()" class="bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-2 rounded-lg transition" title="Unduh salinan arsip database ke file JSON">
-            <i class="fa-solid fa-database mr-1 text-sky-300"></i>Unduh JSON
+            <i class="fa-solid fa-database mr-1 text-sky-300"></i>Backup JSON
           </button>
           <label class="cursor-pointer bg-sky-100 hover:bg-sky-200 text-blue-950 border border-sky-300 font-semibold px-3 py-2 rounded-lg transition" title="Unggah & pulihkan data dari file JSON ke Cloud">
-            <i class="fa-solid fa-upload mr-1 text-sky-700"></i>Restore JSON
+            <i class="fa-solid fa-upload mr-1 text-sky-700"></i>Restore
             <input type="file" id="json-restore" accept=".json" class="hidden" />
           </label>
         </div>
@@ -582,15 +602,64 @@
         </div>
       </section>
 
-      <!-- VIEW 4: RIWAYAT PEMBAYARAN -->
-      <section id="view-riwayat" class="hidden">
-        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
-          <div class="p-4 border-b border-blue-100 flex items-center justify-between bg-sky-50/50">
+      <!-- VIEW 4: RIWAYAT PEMBAYARAN & LAPORAN KAS MASUK -->
+      <section id="view-riwayat" class="hidden space-y-4">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100 space-y-3">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
             <div>
-              <h2 class="font-bold text-blue-950">Log Transaksi Pembayaran Masuk (Tersinkron Cloud)</h2>
-              <p class="text-xs text-slate-500">Setiap pelunasan otomatis mengurangi saldo tagihan santri terkait di seluruh perangkat</p>
+              <h2 class="font-bold text-blue-950">Log Transaksi Pembayaran Masuk &amp; Laporan Tutup Kas</h2>
+              <p class="text-xs text-slate-500">Filter berdasarkan tanggal atau metode bayar untuk mencetak Laporan Kas Masuk Harian/Bulanan</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="resetRiwayatFilter()" class="text-xs text-sky-700 hover:underline font-semibold px-2 py-1.5">
+                Reset Filter Kas
+              </button>
+              <button onclick="printLaporanKas()" class="btn-brand-primary text-xs font-semibold px-3.5 py-2 rounded-lg shadow-xs">
+                <i class="fa-solid fa-print mr-1 text-sky-300"></i>Cetak Laporan Kas Masuk (PDF)
+              </button>
             </div>
           </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-blue-50">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Dari Tanggal</label>
+              <input type="date" id="riwayat-date-start" onchange="renderRiwayat()" class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Sampai Tanggal</label>
+              <input type="date" id="riwayat-date-end" onchange="renderRiwayat()" class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Metode Pembayaran</label>
+              <select id="riwayat-metode" onchange="renderRiwayat()" class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-medium">
+                <option value="ALL">Semua Metode (Tunai &amp; Transfer)</option>
+                <option value="Tunai (Kas Bendahara)">Tunai (Kas Bendahara)</option>
+                <option value="Transfer Bank">Transfer Bank</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Cari Santri / No. Kwitansi</label>
+              <input type="text" id="riwayat-search" oninput="renderRiwayat()" placeholder="Ketik nama atau KWT..." class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-sky-50/80 p-3 rounded-xl border border-sky-200 text-xs">
+            <div class="flex items-center justify-between sm:justify-start sm:gap-3">
+              <span class="text-slate-600 font-medium">Total Kas Terfilter:</span>
+              <strong id="riwayat-sum-total" class="text-sm font-extrabold text-blue-950">Rp 0</strong>
+            </div>
+            <div class="flex items-center justify-between sm:justify-start sm:gap-3">
+              <span class="text-slate-600 font-medium"><i class="fa-solid fa-money-bill-wave text-emerald-600 mr-1"></i>Tunai:</span>
+              <strong id="riwayat-sum-tunai" class="font-bold text-slate-800">Rp 0</strong>
+            </div>
+            <div class="flex items-center justify-between sm:justify-start sm:gap-3">
+              <span class="text-slate-600 font-medium"><i class="fa-solid fa-building-columns text-sky-700 mr-1"></i>Transfer Bank:</span>
+              <strong id="riwayat-sum-transfer" class="font-bold text-slate-800">Rp 0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
               <thead class="bg-gradient-to-r from-blue-950 to-blue-900 text-white text-xs uppercase border-b border-blue-800">
@@ -598,13 +667,51 @@
                   <th class="px-4 py-3.5">No. Kwitansi</th>
                   <th class="px-4 py-3.5">Tanggal</th>
                   <th class="px-4 py-3.5">Nama Santri</th>
-                  <th class="px-4 py-3.5">Kelas</th>
+                  <th class="px-4 py-3.5">Kelas &amp; Metode</th>
                   <th class="px-4 py-3.5">Rincian Pembayaran</th>
                   <th class="px-4 py-3.5 text-right">Nominal Bayar</th>
                   <th class="px-4 py-3.5 text-center">Kirim / Cetak / Koreksi</th>
                 </tr>
               </thead>
               <tbody id="riwayat-body" class="divide-y divide-blue-50"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 5: JEJAK AUDIT AKTIVITAS CLOUD (REAL-TIME AUDIT LOG) -->
+      <section id="view-audit" class="hidden space-y-4">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 class="font-bold text-blue-950 flex items-center gap-2">
+              <i class="fa-solid fa-shield-halved text-sky-600"></i>
+              Jejak Audit Aktivitas Sistem (Real-Time Cloud Log)
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">Rekam jejak otomatis untuk setiap pembayaran, pembatalan, import Excel, perubahan data santri, dan restore database.</p>
+          </div>
+          <div class="w-full sm:w-56">
+            <select id="audit-filter-action" onchange="renderAuditLogs()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium">
+              <option value="ALL">Semua Jenis Aktivitas</option>
+              <option value="PAYMENT">Pembayaran &amp; Kwitansi</option>
+              <option value="CANCEL_TX">Pembatalan Transaksi</option>
+              <option value="STUDENT">Tambah / Edit / Hapus Santri</option>
+              <option value="IMPORT">Import Excel / Migrasi / Restore</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+              <thead class="bg-gradient-to-r from-blue-950 to-blue-900 text-white text-xs uppercase border-b border-blue-800">
+                <tr>
+                  <th class="px-4 py-3.5 w-44">Waktu Tercatat</th>
+                  <th class="px-4 py-3.5 w-44">Kategori Aksi</th>
+                  <th class="px-4 py-3.5">Keterangan Aktivitas</th>
+                  <th class="px-4 py-3.5 w-52">Petugas / Akun</th>
+                </tr>
+              </thead>
+              <tbody id="audit-body" class="divide-y divide-blue-50"></tbody>
             </table>
           </div>
         </div>
@@ -789,7 +896,7 @@
       </div>
       <div class="px-5 py-3 bg-slate-100 flex justify-end gap-2">
         <button onclick="closeModal('modal-bayar-gabungan')" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-200">Batal</button>
-        <button onclick="submitPembayaranGabungan()" class="px-4 py-2 rounded-lg text-sm font-semibold btn-brand-primary shadow">
+        <button onclick="submitPembayaranGabungan()" id="btn-submit-bayar-gab" class="px-4 py-2 rounded-lg text-sm font-semibold btn-brand-primary shadow">
           <i class="fa-solid fa-check mr-1"></i>Simpan &amp; Buat Kwitansi Gabungan
         </button>
       </div>
@@ -923,7 +1030,7 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">Isi Pesan Otomatis (Dapat Diedit)</label>
-          <textarea id="wa-message" rows="11" class="w-full border border-slate-300 rounded-lg p-3 text-xs font-mono leading-relaxed focus:outline-none"></textarea>
+          <textarea id="wa-message" rows="12" class="w-full border border-slate-300 rounded-lg p-3 text-xs font-mono leading-relaxed focus:outline-none"></textarea>
         </div>
       </div>
       <div class="px-5 py-3 bg-slate-100 flex flex-wrap justify-end gap-2">
@@ -937,7 +1044,88 @@
     </div>
   </div>
 
-  <!-- MODAL 7: PENGATURAN AKUN BENDAHARA (FIREBASE AUTH) -->
+  <!-- MODAL 7: ANTREAN PENAGIHAN WHATSAPP MASSAL -->
+  <div id="modal-bulk-wa" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-4xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-sky-200">
+      <div class="bg-gradient-to-r from-emerald-800 to-green-700 text-white px-5 py-4 flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-base"><i class="fa-brands fa-whatsapp mr-2 text-lg"></i>Antrean Penagihan WhatsApp Massal</h3>
+          <p class="text-xs text-emerald-100 mt-0.5">Kirim pengingat tagihan secara berurutan ke wali santri menunggak sesuai filter aktif (Cut-off saat ini)</p>
+        </div>
+        <button onclick="closeModal('modal-bulk-wa')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="p-4 bg-sky-50 border-b border-blue-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="bulk-wa-sheet-filter" onchange="renderBulkWAList()" class="border border-slate-300 bg-white rounded-lg px-2.5 py-1.5 font-semibold text-blue-950">
+            <option value="ALL">Semua Kelas Menunggak</option>
+          </select>
+          <label class="flex items-center gap-1.5 text-slate-700 cursor-pointer font-medium">
+            <input type="checkbox" id="bulk-wa-only-phone" onchange="renderBulkWAList()" class="accent-green-600" />
+            <span>Hanya yang sudah ada No. WA</span>
+          </label>
+        </div>
+        <div class="font-semibold text-blue-950">
+          Target Antrean: <span id="bulk-wa-count" class="text-rose-700 font-bold">0</span> santri
+        </div>
+      </div>
+
+      <div class="p-4 overflow-y-auto flex-1">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-slate-100 text-slate-700 uppercase border-b border-slate-200">
+            <tr>
+              <th class="px-3 py-2.5">No</th>
+              <th class="px-3 py-2.5">Nama Santri &amp; Kelas</th>
+              <th class="px-3 py-2.5">No. WA Wali (Isi &amp; Simpan Cepat)</th>
+              <th class="px-3 py-2.5 text-right">Total Tagihan</th>
+              <th class="px-3 py-2.5 text-center">Status &amp; Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="bulk-wa-body" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+
+      <div class="px-5 py-3 bg-slate-100 border-t border-slate-200 flex justify-between items-center text-xs">
+        <span class="text-slate-500">Nomor WA yang diisi di sini otomatis tersimpan ke Cloud Firestore.</span>
+        <button onclick="closeModal('modal-bulk-wa')" class="px-4 py-2 rounded-lg font-semibold bg-slate-800 text-white hover:bg-slate-900">Selesai</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 8: PENGATURAN REKENING & CATATAN TAGIHAN (CLOUD SETTINGS) -->
+  <div id="modal-settings" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-base"><i class="fa-solid fa-building-columns text-sky-300 mr-2"></i>Pengaturan Rekening &amp; Info Pembayaran</h3>
+          <p class="text-xs text-sky-200 mt-0.5">Otomatis muncul di pesan WhatsApp &amp; Surat Tagihan PDF</p>
+        </div>
+        <button onclick="closeModal('modal-settings')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="saveAppSettings(event)" class="p-5 space-y-3.5">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Nama Bendahara Penandatangan</label>
+          <input type="text" id="set-bendahara" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Informasi Rekening Bank Resmi Ponpes</label>
+          <textarea id="set-rekening" rows="3" placeholder="Contoh: BSI (Bank Syariah Indonesia) No. Rek: 7123456789 a.n. Yayasan Ponpes SIT Al Firdaus" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs"></textarea>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Catatan Kaki Surat Tagihan (Opsional)</label>
+          <input type="text" id="set-catatan-surat" placeholder="Contoh: Mohon menyertakan nama santri & kelas pada berita transfer." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+        </div>
+        <div class="pt-2 flex justify-end gap-2">
+          <button type="button" onclick="closeModal('modal-settings')" class="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200">Batal</button>
+          <button type="submit" id="btn-save-settings" class="px-4 py-2 rounded-lg text-xs font-semibold btn-brand-primary shadow">
+            <i class="fa-solid fa-floppy-disk mr-1"></i>Simpan ke Cloud
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 9: PENGATURAN AKUN BENDAHARA (FIREBASE AUTH) -->
   <div id="modal-account" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
     <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-sky-200">
       <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
@@ -974,7 +1162,7 @@
     </div>
   </div>
 
-  <!-- MODAL 8: PREVIEW SURAT TAGIHAN / KWITANSI PDF -->
+  <!-- MODAL 10: PREVIEW SURAT TAGIHAN / KWITANSI PDF -->
   <div id="modal-print" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4">
     <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-sky-200">
       <div class="navbar-gradient text-white px-5 py-3 flex items-center justify-between no-print">
