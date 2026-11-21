@@ -1,5 +1,5 @@
 // ============================================================================
-// SISTEM PENCATATAN & REKAPITULASI BIAYA PENDIDIKAN (CLOUD FIREBASE EDITION)
+// SISTEM PENCATATAN & REKAPITULASI BIAYA PENDIDIKAN (CLOUD FIREBASE EDITION v2)
 // INSTANSI : PONPES SIT AL FIRDAUS BANDARLAMPUNG (SMPIT / SMAIT AL FIRDAUS)
 // BENDAHARA: RESTASARI, S.Sos
 // ============================================================================
@@ -24,9 +24,13 @@ import {
   persistentMultipleTabManager,
   collection,
   doc,
+  setDoc,
   onSnapshot,
   writeBatch,
   addDoc,
+  query,
+  orderBy,
+  limit,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-firestore.js";
 
@@ -68,9 +72,20 @@ const MONTH_ORDER = [
 
 let students = [];
 let transactions = [];
+let auditLogs = [];
+let appSettings = {
+  bendahara: 'Restasari, S.Sos',
+  rekening: '',
+  catatanSurat: 'Mohon menyertakan nama lengkap santri & kelas pada berita transfer.'
+};
+
 let unsubStudents = null;
 let unsubTransactions = null;
+let unsubAuditLogs = null;
+let unsubSettings = null;
 let uiListenersAttached = false;
+let isSubmittingPayment = false;
+const sentWATodaySet = new Set();
 
 // Data contoh awal (opsional jika database masih kosong)
 const INITIAL_SAMPLE_DATA = [
@@ -163,7 +178,6 @@ function handleLogoFallback(imgEl) {
 // HELPER OPERASI CLOUD FIRESTORE (BATCH ATOMIK + LOG JEJAK AUDIT)
 // ============================================================================
 async function commitFirestoreOps(operations) {
-  // Firestore membatasi maksimal 500 operasi per batch; kita bagi per 400 agar aman
   const CHUNK_SIZE = 400;
   for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
     const chunk = operations.slice(i, i + CHUNK_SIZE);
@@ -190,12 +204,28 @@ async function logAuditAction(action, summary) {
       action,
       summary,
       actorEmail: userEmail,
-      actorName: 'Restasari, S.Sos',
+      actorName: appSettings.bendahara || 'Restasari, S.Sos',
       createdAt: serverTimestamp()
     });
   } catch (err) {
     console.warn('Audit log dilewati:', err);
   }
+}
+
+function generateNextKwitansiNumber() {
+  const year = new Date().getFullYear();
+  const prefix = `KWT/ALFIRDAUS/${year}/`;
+  let maxSeq = 0;
+  transactions.forEach((tx) => {
+    const no = String(tx.noKwitansi || '');
+    if (no.startsWith(prefix)) {
+      const seqPart = parseInt(no.slice(prefix.length), 10);
+      if (!isNaN(seqPart) && seqPart > maxSeq) {
+        maxSeq = seqPart;
+      }
+    }
+  });
+  return `${prefix}${String(maxSeq + 1).padStart(4, '0')}`;
 }
 
 function updateCloudSyncBadge(isFromCache) {
@@ -225,7 +255,6 @@ function checkEmptyCloudBanner() {
 
   banner.classList.remove('hidden');
 
-  // Cek apakah ada data lama tersimpan di localStorage browser ini
   let legacyStudents = [];
   let legacyTx = [];
   try {
@@ -340,7 +369,7 @@ function attachUIEventListenersOnce() {
 function startFirestoreListeners() {
   stopFirestoreListeners();
 
-  // Listener Real-Time Koleksi Santri
+  // 1. Listener Real-Time Koleksi Santri
   unsubStudents = onSnapshot(
     collection(db, 'students'),
     { includeMetadataChanges: true },
@@ -350,7 +379,6 @@ function startFirestoreListeners() {
       snapshot.forEach((docSnap) => {
         list.push({ id: docSnap.id, ...docSnap.data() });
       });
-      // Urutkan berdasarkan kelas lalu nama santri
       list.sort((a, b) => {
         const rankDiff = getSheetChronologicalRank(a.sheet) - getSheetChronologicalRank(b.sheet);
         if (rankDiff !== 0) return rankDiff;
@@ -362,10 +390,13 @@ function startFirestoreListeners() {
       populateSheetFilter();
       renderTable();
 
-      // Jika modal Kartu Induk sedang terbuka, perbarui otomatis
       const indukModal = document.getElementById('modal-induk');
       if (indukModal && !indukModal.classList.contains('hidden')) {
         refreshIndukDetailModal();
+      }
+      const bulkModal = document.getElementById('modal-bulk-wa');
+      if (bulkModal && !bulkModal.classList.contains('hidden')) {
+        renderBulkWAList();
       }
     },
     (error) => {
@@ -374,7 +405,7 @@ function startFirestoreListeners() {
     }
   );
 
-  // Listener Real-Time Koleksi Transaksi Pembayaran
+  // 2. Listener Real-Time Koleksi Transaksi Pembayaran
   unsubTransactions = onSnapshot(
     collection(db, 'transactions'),
     (snapshot) => {
@@ -382,28 +413,75 @@ function startFirestoreListeners() {
       snapshot.forEach((docSnap) => {
         list.push({ id: docSnap.id, ...docSnap.data() });
       });
-      // Urutkan dari transaksi terbaru ke terlama
       list.sort((a, b) => String(b.noKwitansi || '').localeCompare(String(a.noKwitansi || '')));
       transactions = list;
+      updateCashSummaryStats();
       renderRiwayat();
     },
     (error) => {
       console.error('Firestore transactions listener error:', error);
     }
   );
+
+  // 3. Listener Real-Time Jejak Audit (100 Aktivitas Terbaru)
+  const auditQuery = query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limit(100));
+  unsubAuditLogs = onSnapshot(
+    auditQuery,
+    (snapshot) => {
+      const list = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      auditLogs = list;
+      document.getElementById('badge-audit').textContent = auditLogs.length;
+      renderAuditLogs();
+    },
+    (error) => {
+      console.warn('Audit logs listener info:', error.message);
+    }
+  );
+
+  // 4. Listener Real-Time Pengaturan Rekening & Profil Instansi
+  unsubSettings = onSnapshot(
+    doc(db, 'settings', 'general'),
+    (docSnap) => {
+      if (docSnap.exists()) {
+        appSettings = { ...appSettings, ...docSnap.data() };
+      }
+    },
+    (error) => {
+      console.warn('Settings listener info:', error.message);
+    }
+  );
 }
 
 function stopFirestoreListeners() {
-  if (unsubStudents) {
-    unsubStudents();
-    unsubStudents = null;
-  }
-  if (unsubTransactions) {
-    unsubTransactions();
-    unsubTransactions = null;
-  }
+  if (unsubStudents) { unsubStudents(); unsubStudents = null; }
+  if (unsubTransactions) { unsubTransactions(); unsubTransactions = null; }
+  if (unsubAuditLogs) { unsubAuditLogs(); unsubAuditLogs = null; }
+  if (unsubSettings) { unsubSettings(); unsubSettings = null; }
   students = [];
   transactions = [];
+  auditLogs = [];
+}
+
+function updateCashSummaryStats() {
+  const todayStr = new Date().toISOString().split('T')[0];
+  let totalAll = 0;
+  let totalToday = 0;
+
+  transactions.forEach((tx) => {
+    const amt = Number(tx.totalPaid) || 0;
+    totalAll += amt;
+    if (tx.tanggal === todayStr) {
+      totalToday += amt;
+    }
+  });
+
+  const elTotal = document.getElementById('stat-kas-total');
+  const elToday = document.getElementById('stat-kas-hari-ini');
+  if (elTotal) elTotal.textContent = formatRupiah(totalAll);
+  if (elToday) elToday.textContent = `Hari ini: ${formatRupiah(totalToday)}`;
 }
 
 function translateFirebaseAuthError(code) {
@@ -522,6 +600,40 @@ async function saveAccountCredentials(event) {
     alert('Password akun Bendahara berhasil diperbarui di Cloud!');
   } catch (err) {
     alert('Gagal memperbarui password: ' + translateFirebaseAuthError(err.code));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ============================================================================
+// PENGATURAN REKENING & CATATAN TAGIHAN (CLOUD SETTINGS)
+// ============================================================================
+function openSettingsModal() {
+  document.getElementById('set-bendahara').value = appSettings.bendahara || 'Restasari, S.Sos';
+  document.getElementById('set-rekening').value = appSettings.rekening || '';
+  document.getElementById('set-catatan-surat').value = appSettings.catatanSurat || '';
+  openModal('modal-settings');
+}
+
+async function saveAppSettings(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btn-save-settings');
+  btn.disabled = true;
+
+  const payload = {
+    bendahara: document.getElementById('set-bendahara').value.trim() || 'Restasari, S.Sos',
+    rekening: document.getElementById('set-rekening').value.trim(),
+    catatanSurat: document.getElementById('set-catatan-surat').value.trim(),
+    updatedAt: serverTimestamp()
+  };
+
+  try {
+    await setDoc(doc(db, 'settings', 'general'), payload, { merge: true });
+    await logAuditAction('UPDATE_SETTINGS', 'Memperbarui pengaturan rekening & info pembayaran Cloud');
+    closeModal('modal-settings');
+    alert('Pengaturan rekening & info pembayaran berhasil disimpan ke Cloud!');
+  } catch (err) {
+    alert('Gagal menyimpan pengaturan: ' + err.message);
   } finally {
     btn.disabled = false;
   }
@@ -941,7 +1053,6 @@ function handleExcelUpload(event) {
         return;
       }
 
-      // Pertahankan nomor WA wali santri yang sudah pernah diinput
       const oldWaMap = {};
       students.forEach((s) => {
         if (s.wa) oldWaMap[normalizeStudentName(s.nama)] = s.wa;
@@ -954,14 +1065,12 @@ function handleExcelUpload(event) {
       const newIdSet = new Set(parsedStudents.map((s) => s.id));
       const ops = [];
 
-      // Hapus dokumen lama yang tidak ada di Excel baru
       students.forEach((oldSt) => {
         if (!newIdSet.has(oldSt.id)) {
           ops.push({ type: 'delete', collection: 'students', id: oldSt.id });
         }
       });
 
-      // Simpan/timpa dokumen baru ke Firestore
       parsedStudents.forEach((st) => {
         ops.push({ type: 'set', collection: 'students', id: st.id, data: st });
       });
@@ -1477,6 +1586,11 @@ async function saveIndukWA() {
   }
 }
 
+function getPaymentFooterWABlock() {
+  if (!appSettings.rekening) return '';
+  return `\n\n*Informasi Rekening Pembayaran:*\n${appSettings.rekening}`;
+}
+
 function openWAInduk() {
   const normName = document.getElementById('induk-modal-norm-name').value;
   const mode = document.getElementById('induk-modal-mode').value;
@@ -1502,13 +1616,13 @@ Berikut kami sampaikan rekapitulasi gabungan biaya pendidikan Ponpes SIT Al Fird
 
 ${sectionsText}
 
-*TOTAL TAGIHAN GABUNGAN : ${formatRupiah(grandTotal)}*
+*TOTAL TAGIHAN GABUNGAN : ${formatRupiah(grandTotal)}*${getPaymentFooterWABlock()}
 
 Mohon konfirmasi bukti transfer apabila Bapak/Ibu telah melakukan pembayaran. Atas perhatian dan kerja samanya kami ucapkan Jazakumullahu Khairan Katsiran.
 
 Hormat kami,
 *Bendahara Ponpes SIT Al Firdaus*
-*Restasari, S.Sos*`;
+*${appSettings.bendahara || 'Restasari, S.Sos'}*`;
 
   document.getElementById('wa-phone').value = prof.wa || '';
   document.getElementById('wa-message').value = msg;
@@ -1574,6 +1688,7 @@ function openPrintInduk() {
     <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
       <strong>Terbilang:</strong> ${terbilang(grandTotal)}
     </div>
+    ${getRekeningBoxHTML()}
     ${getSignatureHTML(today)}
   `;
   openModal('modal-print');
@@ -1668,6 +1783,7 @@ function recalcBayarGabTotal() {
 }
 
 async function submitPembayaranGabungan() {
+  if (isSubmittingPayment) return;
   const normName = document.getElementById('bayar-gab-norm-name').value;
   const prof = buildUnifiedStudentProfiles('DEDUP').find((p) => p.normName === normName);
   if (!prof) return;
@@ -1718,7 +1834,11 @@ async function submitPembayaranGabungan() {
     return;
   }
 
-  const noKwitansi = `KWT/ALFIRDAUS/${new Date().getFullYear()}/${String(transactions.length + 1).padStart(4, '0')}`;
+  const btn = document.getElementById('btn-submit-bayar-gab');
+  isSubmittingPayment = true;
+  if (btn) btn.disabled = true;
+
+  const noKwitansi = generateNextKwitansiNumber();
   const txRecord = {
     id: 'tx-' + Date.now(),
     noKwitansi,
@@ -1746,12 +1866,14 @@ async function submitPembayaranGabungan() {
     await commitFirestoreOps(ops);
     await logAuditAction('PAYMENT_COMBINED', `Kwitansi ${noKwitansi} (${prof.displayName}): ${formatRupiah(totalPaid)}`);
 
-    // Simpan ke array lokal seketika agar modal kwitansi bisa langsung ditampilkan bahkan saat offline
     transactions.unshift(txRecord);
     closeModal('modal-bayar-gabungan');
     openPrintKwitansi(txRecord.id);
   } catch (err) {
     alert('Gagal menyimpan pembayaran gabungan: ' + err.message);
+  } finally {
+    isSubmittingPayment = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1817,6 +1939,7 @@ function recalcBayarTotal() {
 }
 
 async function submitPembayaran() {
+  if (isSubmittingPayment) return;
   const studentId = document.getElementById('bayar-student-id').value;
   const origSt = students.find((s) => s.id === studentId);
   if (!origSt) return;
@@ -1859,7 +1982,11 @@ async function submitPembayaran() {
     return;
   }
 
-  const noKwitansi = `KWT/ALFIRDAUS/${new Date().getFullYear()}/${String(transactions.length + 1).padStart(4, '0')}`;
+  const btn = document.getElementById('btn-submit-bayar');
+  isSubmittingPayment = true;
+  if (btn) btn.disabled = true;
+
+  const noKwitansi = generateNextKwitansiNumber();
   const txRecord = {
     id: 'tx-' + Date.now(),
     noKwitansi,
@@ -1892,6 +2019,9 @@ async function submitPembayaran() {
     openPrintKwitansi(txRecord.id);
   } catch (err) {
     alert('Gagal menyimpan pembayaran: ' + err.message);
+  } finally {
+    isSubmittingPayment = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1949,25 +2079,79 @@ async function cancelTransaction(txId) {
   }
 }
 
+// ============================================================================
+// RIWAYAT KAS & LAPORAN TUTUP KAS HARIAN / BULANAN
+// ============================================================================
+function getFilteredTransactions() {
+  const start = document.getElementById('riwayat-date-start')?.value || '';
+  const end = document.getElementById('riwayat-date-end')?.value || '';
+  const metode = document.getElementById('riwayat-metode')?.value || 'ALL';
+  const search = (document.getElementById('riwayat-search')?.value || '').toLowerCase().trim();
+
+  return transactions.filter((tx) => {
+    if (start && tx.tanggal < start) return false;
+    if (end && tx.tanggal > end) return false;
+    if (metode !== 'ALL' && tx.metode !== metode) return false;
+    if (search) {
+      const matchNama = String(tx.nama || '').toLowerCase().includes(search);
+      const matchKwt = String(tx.noKwitansi || '').toLowerCase().includes(search);
+      if (!matchNama && !matchKwt) return false;
+    }
+    return true;
+  });
+}
+
+function resetRiwayatFilter() {
+  document.getElementById('riwayat-date-start').value = '';
+  document.getElementById('riwayat-date-end').value = '';
+  document.getElementById('riwayat-metode').value = 'ALL';
+  document.getElementById('riwayat-search').value = '';
+  renderRiwayat();
+}
+
 function renderRiwayat() {
   document.getElementById('badge-transaksi').textContent = transactions.length;
   const tbody = document.getElementById('riwayat-body');
   tbody.innerHTML = '';
 
-  if (transactions.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">Belum ada transaksi pembayaran yang dicatat.</td></tr>';
+  const filteredTx = getFilteredTransactions();
+  let sumTotal = 0;
+  let sumTunai = 0;
+  let sumTransfer = 0;
+
+  filteredTx.forEach((tx) => {
+    const amt = Number(tx.totalPaid) || 0;
+    sumTotal += amt;
+    if (String(tx.metode || '').toLowerCase().includes('tunai')) sumTunai += amt;
+    else sumTransfer += amt;
+  });
+
+  document.getElementById('riwayat-sum-total').textContent = formatRupiah(sumTotal);
+  document.getElementById('riwayat-sum-tunai').textContent = formatRupiah(sumTunai);
+  document.getElementById('riwayat-sum-transfer').textContent = formatRupiah(sumTransfer);
+
+  if (filteredTx.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">Tidak ada transaksi pembayaran yang sesuai filter.</td></tr>';
     return;
   }
 
-  transactions.forEach((tx) => {
+  filteredTx.forEach((tx) => {
     const detailStr = (tx.details || []).map((d) => `${d.label} (${formatRupiah(d.paid)})`).join(', ');
+    const isTunai = String(tx.metode || '').toLowerCase().includes('tunai');
+    const metodeBadge = isTunai
+      ? '<span class="inline-block bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold px-1.5 py-0.5 rounded mt-1">Tunai</span>'
+      : '<span class="inline-block bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-semibold px-1.5 py-0.5 rounded mt-1">Transfer</span>';
+
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-sky-50/60';
     tr.innerHTML = `
       <td class="px-4 py-3 font-mono text-xs font-bold text-blue-900">${tx.noKwitansi}</td>
       <td class="px-4 py-3 text-xs text-slate-600">${tx.tanggal}</td>
       <td class="px-4 py-3 font-bold text-blue-950">${tx.nama}</td>
-      <td class="px-4 py-3 text-xs"><span class="bg-sky-100 text-blue-950 border border-sky-200 px-2 py-0.5 rounded font-semibold">${tx.sheet}</span></td>
+      <td class="px-4 py-3 text-xs">
+        <div><span class="bg-sky-100 text-blue-950 border border-sky-200 px-2 py-0.5 rounded font-semibold">${tx.sheet}</span></div>
+        <div>${metodeBadge}</div>
+      </td>
       <td class="px-4 py-3 text-xs text-slate-600">${detailStr}</td>
       <td class="px-4 py-3 text-right font-bold text-blue-900">${formatRupiah(tx.totalPaid)}</td>
       <td class="px-4 py-3 text-center">
@@ -1988,13 +2172,134 @@ function renderRiwayat() {
   });
 }
 
-// ============================================================================
-// KIRIM WHATSAPP KE ORANG TUA / WALI SANTRI
-// ============================================================================
-function openWAModal(studentId) {
-  const st = students.find((s) => s.id === studentId);
-  if (!st) return;
+function printLaporanKas() {
+  const filteredTx = getFilteredTransactions();
+  const start = document.getElementById('riwayat-date-start').value;
+  const end = document.getElementById('riwayat-date-end').value;
+  const metode = document.getElementById('riwayat-metode').value;
+  const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
+  let periodeLabel = 'Semua Tanggal Transaksi';
+  if (start && end) periodeLabel = `Periode ${start} s.d. ${end}`;
+  else if (start) periodeLabel = `Mulai Tanggal ${start}`;
+  else if (end) periodeLabel = `Sampai Tanggal ${end}`;
+  if (metode !== 'ALL') periodeLabel += ` (${metode})`;
+
+  let sumTotal = 0;
+  let sumTunai = 0;
+  let sumTransfer = 0;
+
+  const rowsHtml = filteredTx.length > 0
+    ? filteredTx.map((tx, idx) => {
+        const amt = Number(tx.totalPaid) || 0;
+        sumTotal += amt;
+        if (String(tx.metode || '').toLowerCase().includes('tunai')) sumTunai += amt;
+        else sumTransfer += amt;
+        const detailStr = (tx.details || []).map((d) => `${d.label}: ${formatRupiah(d.paid)}`).join('; ');
+        return `
+          <tr class="border-b border-slate-200">
+            <td class="py-1.5 px-2 text-center">${idx + 1}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${tx.noKwitansi}</td>
+            <td class="py-1.5 px-2">${tx.tanggal}</td>
+            <td class="py-1.5 px-2 font-semibold">${tx.nama} (${tx.sheet})</td>
+            <td class="py-1.5 px-2">${tx.metode}</td>
+            <td class="py-1.5 px-2">${detailStr}</td>
+            <td class="py-1.5 px-2 text-right font-semibold">${formatRupiah(amt)}</td>
+          </tr>`;
+      }).join('')
+    : `<tr><td colspan="7" class="py-4 text-center text-slate-400">Tidak ada transaksi pada periode ini.</td></tr>`;
+
+  document.getElementById('print-area').innerHTML = `
+    ${getKopSuratHTML()}
+    <div class="text-center mb-4">
+      <h3 class="font-bold text-base underline uppercase text-blue-950">LAPORAN PENERIMAAN KAS BIAYA PENDIDIKAN</h3>
+      <p class="text-xs text-slate-600">${periodeLabel}</p>
+    </div>
+    <table class="w-full text-[11px] border border-blue-200 mb-3">
+      <thead class="bg-blue-950 text-white">
+        <tr>
+          <th class="py-2 px-2">No</th>
+          <th class="py-2 px-2 text-left">No. Kwitansi</th>
+          <th class="py-2 px-2 text-left">Tanggal</th>
+          <th class="py-2 px-2 text-left">Santri &amp; Kelas</th>
+          <th class="py-2 px-2 text-left">Metode</th>
+          <th class="py-2 px-2 text-left">Uraian Pembayaran</th>
+          <th class="py-2 px-2 text-right">Nominal</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot class="bg-sky-100 font-bold border-t-2 border-blue-900 text-blue-950">
+        <tr>
+          <td colspan="6" class="py-2 px-2 text-right uppercase">Total Kas Masuk (${filteredTx.length} Transaksi)</td>
+          <td class="py-2 px-2 text-right text-xs">${formatRupiah(sumTotal)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="grid grid-cols-2 gap-3 text-xs bg-sky-50 p-3 rounded border border-sky-200 mb-2">
+      <div><strong>Rincian Tunai (Kas):</strong> ${formatRupiah(sumTunai)}</div>
+      <div><strong>Rincian Transfer Bank:</strong> ${formatRupiah(sumTransfer)}</div>
+      <div class="col-span-2 italic"><strong>Terbilang:</strong> ${terbilang(sumTotal)}</div>
+    </div>
+    ${getSignatureHTML(today)}
+  `;
+  openModal('modal-print');
+}
+
+// ============================================================================
+// RENDER TAB JEJAK AUDIT AKTIVITAS CLOUD
+// ============================================================================
+function renderAuditLogs() {
+  const filterAct = document.getElementById('audit-filter-action')?.value || 'ALL';
+  const tbody = document.getElementById('audit-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const filtered = auditLogs.filter((log) => {
+    const act = String(log.action || '');
+    if (filterAct === 'ALL') return true;
+    if (filterAct === 'PAYMENT') return act.startsWith('PAYMENT');
+    if (filterAct === 'CANCEL_TX') return act === 'CANCEL_TX';
+    if (filterAct === 'STUDENT') return act.includes('STUDENT') || act === 'CREATE_CLASS';
+    if (filterAct === 'IMPORT') return act.includes('IMPORT') || act.includes('MIGRATE') || act.includes('RESTORE') || act.includes('SEED');
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-8 text-slate-400">Belum ada catatan aktivitas Cloud yang tercatat.</td></tr>';
+    return;
+  }
+
+  filtered.forEach((log) => {
+    let timeStr = 'Baru saja (Sinkron Lokal)';
+    if (log.createdAt && typeof log.createdAt.toDate === 'function') {
+      timeStr = log.createdAt.toDate().toLocaleString('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    const act = String(log.action || 'INFO');
+    let badgeClass = 'bg-slate-100 text-slate-700 border-slate-300';
+    if (act.startsWith('PAYMENT')) badgeClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+    else if (act === 'CANCEL_TX' || act === 'DELETE_STUDENT') badgeClass = 'bg-rose-50 text-rose-700 border-rose-200';
+    else if (act.includes('IMPORT') || act.includes('RESTORE') || act.includes('MIGRATE')) badgeClass = 'bg-amber-50 text-amber-800 border-amber-200';
+    else badgeClass = 'bg-sky-50 text-blue-950 border-sky-200';
+
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-sky-50/40';
+    tr.innerHTML = `
+      <td class="px-4 py-3 text-xs text-slate-500 font-mono">${timeStr}</td>
+      <td class="px-4 py-3"><span class="inline-block border text-[10px] font-bold px-2 py-0.5 rounded ${badgeClass}">${act}</span></td>
+      <td class="px-4 py-3 text-xs text-slate-700 font-medium">${log.summary || '-'}</td>
+      <td class="px-4 py-3 text-xs text-slate-500">${log.actorEmail || '-'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ============================================================================
+// KIRIM WHATSAPP KE ORANG TUA / WALI SANTRI & ANTREAN WA MASSAL
+// ============================================================================
+function buildSingleStudentWAMessage(st) {
   const cutoffFilter = document.getElementById('filter-cutoff').value;
   const { total, activeItems } = getStudentArrears(st, cutoffFilter);
   const periodeText = cutoffFilter === 'ALL' ? 'Tahun Pelajaran ' + st.tahunAjaran : `s.d. Bulan ${cutoffFilter} (${st.tahunAjaran})`;
@@ -2003,7 +2308,7 @@ function openWAModal(studentId) {
     ? activeItems.map((it, idx) => `${idx + 1}. ${it.label}: ${formatRupiah(it.amount)}`).join('\n')
     : '- Alhamdulillah, tidak ada tunggakan (LUNAS)';
 
-  const msg = `Assalamu'alaikum Warahmatullahi Wabarakatuh.
+  return `Assalamu'alaikum Warahmatullahi Wabarakatuh.
 Yth. Bapak/Ibu Orang Tua/Wali Santri dari:
 
 *Nama Santri* : ${st.nama}
@@ -2015,17 +2320,133 @@ Berikut kami sampaikan informasi administrasi biaya pendidikan Ponpes SIT Al Fir
 *Rincian Tagihan:*
 ${rincianText}
 
-*TOTAL TAGIHAN : ${formatRupiah(total)}*
+*TOTAL TAGIHAN : ${formatRupiah(total)}*${getPaymentFooterWABlock()}
 
 Mohon konfirmasi bukti transfer apabila Bapak/Ibu telah melakukan pembayaran. Atas perhatian dan kerja samanya kami ucapkan Jazakumullahu Khairan Katsiran.
 
 Hormat kami,
 *Bendahara Ponpes SIT Al Firdaus*
-*Restasari, S.Sos*`;
+*${appSettings.bendahara || 'Restasari, S.Sos'}*`;
+}
+
+function openWAModal(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  if (!st) return;
 
   document.getElementById('wa-phone').value = st.wa || '';
-  document.getElementById('wa-message').value = msg;
+  document.getElementById('wa-message').value = buildSingleStudentWAMessage(st);
   openModal('modal-wa');
+}
+
+function openBulkWAModal() {
+  const sheetSelect = document.getElementById('bulk-wa-sheet-filter');
+  const currentSheet = document.getElementById('filter-sheet').value;
+  const allSheets = [...new Set(students.map((s) => s.sheet))];
+
+  sheetSelect.innerHTML = '<option value="ALL">Semua Kelas Menunggak</option>';
+  allSheets.forEach((sh) => {
+    const opt = document.createElement('option');
+    opt.value = sh;
+    opt.textContent = sh;
+    sheetSelect.appendChild(opt);
+  });
+  sheetSelect.value = allSheets.includes(currentSheet) ? currentSheet : 'ALL';
+
+  renderBulkWAList();
+  openModal('modal-bulk-wa');
+}
+
+function renderBulkWAList() {
+  const cutoffFilter = document.getElementById('filter-cutoff').value;
+  const sheetFilter = document.getElementById('bulk-wa-sheet-filter').value;
+  const onlyWithPhone = document.getElementById('bulk-wa-only-phone').checked;
+
+  const targets = students.filter((st) => {
+    if (sheetFilter !== 'ALL' && st.sheet !== sheetFilter) return false;
+    const { total } = getStudentArrears(st, cutoffFilter);
+    if (total <= 0) return false;
+    if (onlyWithPhone && !String(st.wa || '').trim()) return false;
+    return true;
+  });
+
+  document.getElementById('bulk-wa-count').textContent = targets.length;
+  const tbody = document.getElementById('bulk-wa-body');
+  tbody.innerHTML = '';
+
+  if (targets.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400">Tidak ada santri menunggak pada filter antrean ini.</td></tr>';
+    return;
+  }
+
+  targets.forEach((st, idx) => {
+    const { total } = getStudentArrears(st, cutoffFilter);
+    const isSent = sentWATodaySet.has(st.id);
+    const tr = document.createElement('tr');
+    tr.className = isSent ? 'bg-emerald-50/50' : 'hover:bg-sky-50/50';
+    tr.innerHTML = `
+      <td class="px-3 py-2 text-slate-500">${idx + 1}</td>
+      <td class="px-3 py-2">
+        <div class="font-bold text-blue-950">${st.nama}</div>
+        <div class="text-[11px] text-slate-500">${st.sheet} &bull; ${st.unit}</div>
+      </td>
+      <td class="px-3 py-2">
+        <div class="flex items-center gap-1">
+          <input type="text" id="bulk-wa-inp-${st.id}" value="${st.wa || ''}" placeholder="62812..." class="w-36 border border-slate-300 rounded px-2 py-1 text-xs" />
+          <button onclick="quickSaveBulkWA('${st.id}')" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-2 py-1 rounded text-[11px] font-semibold" title="Simpan No. WA ke Cloud">
+            Simpan
+          </button>
+        </div>
+      </td>
+      <td class="px-3 py-2 text-right font-bold text-rose-700">${formatRupiah(total)}</td>
+      <td class="px-3 py-2 text-center">
+        <button onclick="sendBulkWAItem('${st.id}')" class="${isSent ? 'bg-emerald-700' : 'bg-green-600 hover:bg-green-700'} text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-xs">
+          <i class="fa-brands fa-whatsapp mr-1"></i>${isSent ? 'Terkirim (Kirim Ulang)' : 'Kirim WA'}
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function quickSaveBulkWA(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  const inp = document.getElementById(`bulk-wa-inp-${studentId}`);
+  if (!st || !inp) return;
+
+  const newWa = inp.value.trim();
+  const norm = normalizeStudentName(st.nama);
+  const matching = students.filter((s) => normalizeStudentName(s.nama) === norm);
+
+  try {
+    const ops = matching.map((s) => ({
+      type: 'set',
+      collection: 'students',
+      id: s.id,
+      data: { ...s, wa: newWa }
+    }));
+    await commitFirestoreOps(ops);
+  } catch (err) {
+    alert('Gagal menyimpan nomor WA: ' + err.message);
+  }
+}
+
+function sendBulkWAItem(studentId) {
+  const st = students.find((s) => s.id === studentId);
+  if (!st) return;
+
+  const inp = document.getElementById(`bulk-wa-inp-${studentId}`);
+  let phoneRaw = (inp ? inp.value : st.wa || '').replace(/[^\d]/g, '');
+  if (!phoneRaw) {
+    alert(`Isi terlebih dahulu nomor WhatsApp wali santri untuk ${st.nama}.`);
+    if (inp) inp.focus();
+    return;
+  }
+  if (phoneRaw.startsWith('0')) phoneRaw = '62' + phoneRaw.slice(1);
+
+  const msg = encodeURIComponent(buildSingleStudentWAMessage(st));
+  sentWATodaySet.add(st.id);
+  renderBulkWAList();
+  window.open(`https://wa.me/${phoneRaw}?text=${msg}`, '_blank');
 }
 
 function sendKwitansiWA(txId) {
@@ -2055,7 +2476,7 @@ Sisa Tagihan Keseluruhan : ${formatRupiah(sisaGabungan)}
 Terima kasih atas pembayarannya. Jazakumullahu Khairan Katsiran.
 
 Bendahara Ponpes SIT Al Firdaus,
-*Restasari, S.Sos*`;
+*${appSettings.bendahara || 'Restasari, S.Sos'}*`;
 
   document.getElementById('wa-phone').value = prof ? prof.wa : '';
   document.getElementById('wa-message').value = msg;
@@ -2098,6 +2519,16 @@ function getKopSuratHTML() {
   `;
 }
 
+function getRekeningBoxHTML() {
+  if (!appSettings.rekening) return '';
+  return `
+    <div class="mt-3 bg-blue-50/70 p-2.5 rounded text-xs border border-blue-200">
+      <strong class="text-blue-950">Rekening Resmi Pembayaran:</strong> ${appSettings.rekening}
+      ${appSettings.catatanSurat ? `<div class="text-[11px] text-slate-600 mt-0.5">${appSettings.catatanSurat}</div>` : ''}
+    </div>
+  `;
+}
+
 function getSignatureHTML(tanggalStr) {
   return `
     <div class="mt-8 flex justify-end">
@@ -2107,7 +2538,7 @@ function getSignatureHTML(tanggalStr) {
         <div class="h-16 flex items-center justify-center text-slate-300 italic text-[10px]">
           (Cap &amp; Tanda Tangan Resmi)
         </div>
-        <p class="font-bold underline text-blue-950 text-sm">Restasari, S.Sos</p>
+        <p class="font-bold underline text-blue-950 text-sm">${appSettings.bendahara || 'Restasari, S.Sos'}</p>
       </div>
     </div>
   `;
@@ -2160,6 +2591,7 @@ function openPrintTagihan(studentId) {
     <div class="bg-sky-50 p-2.5 rounded text-xs italic border border-sky-200">
       <strong>Terbilang:</strong> ${terbilang(total)}
     </div>
+    ${getRekeningBoxHTML()}
     ${getSignatureHTML(today)}
   `;
   openModal('modal-print');
@@ -2355,7 +2787,6 @@ async function saveStudentEdit() {
 
   const ops = [{ type: 'set', collection: 'students', id: targetId, data: updatedStudent }];
 
-  // Sinkronkan nomor WA ke semua record santri bernama sama
   if (wa) {
     const norm = normalizeStudentName(nama);
     students.forEach((s) => {
@@ -2521,7 +2952,6 @@ function exportToExcel() {
     return true;
   });
 
-  // Sheet 1: Ringkasan per Kelas / Semester
   const grouped = {};
   targetStudents.forEach((st) => {
     if (!grouped[st.sheet]) {
@@ -2544,7 +2974,6 @@ function exportToExcel() {
   const wsSummary = XLSX.utils.json_to_sheet(Object.values(grouped));
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan per Kelas');
 
-  // Sheet 2: Kartu Induk Gabungan Lintas Semester (Anti-Ganda)
   const unifiedProfiles = buildUnifiedStudentProfiles('DEDUP');
   const indukRows = unifiedProfiles.map((p, idx) => ({
     No: idx + 1,
@@ -2559,7 +2988,6 @@ function exportToExcel() {
   const wsInduk = XLSX.utils.json_to_sheet(indukRows);
   XLSX.utils.book_append_sheet(wb, wsInduk, 'Kartu Induk Lintas Smt');
 
-  // Sheet 3: Rincian per Santri (Per Baris Sheet)
   const allRows = targetStudents.map((st, idx) => {
     const { total, activeItems } = getStudentArrears(st, cutoffFilter);
     return {
@@ -2578,7 +3006,6 @@ function exportToExcel() {
   const wsAll = XLSX.utils.json_to_sheet(allRows);
   XLSX.utils.book_append_sheet(wb, wsAll, 'Rincian per Sheet');
 
-  // Sheet 4: Riwayat Pembayaran
   if (transactions.length > 0) {
     const txRows = transactions.map((t) => ({
       'No Kwitansi': t.noKwitansi,
@@ -2600,8 +3027,9 @@ function exportToExcel() {
 function backupJSON() {
   const payload = {
     instansi: 'Ponpes SIT Al Firdaus Bandarlampung',
-    bendahara: 'Restasari, S.Sos',
+    bendahara: appSettings.bendahara || 'Restasari, S.Sos',
     exportedAt: new Date().toISOString(),
+    settings: appSettings,
     students,
     transactions
   };
@@ -2659,13 +3087,13 @@ function handleJSONRestore(event) {
 // NAVIGASI TAB & MODAL
 // ============================================================================
 function switchTab(tabName) {
-  ['tagihan', 'induk', 'rekap', 'riwayat'].forEach((name) => {
+  ['tagihan', 'induk', 'rekap', 'riwayat', 'audit'].forEach((name) => {
     document.getElementById(`view-${name}`).classList.toggle('hidden', name !== tabName);
     const btn = document.getElementById(`tab-${name}`);
     if (name === tabName) {
-      btn.className = 'tab-btn btn-brand-primary px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition';
+      btn.className = 'tab-btn btn-brand-primary px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition';
     } else {
-      btn.className = 'tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition';
+      btn.className = 'tab-btn bg-white text-slate-700 hover:bg-sky-50 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-blue-200 transition';
     }
   });
 
@@ -2696,6 +3124,8 @@ Object.assign(window, {
   openResetPasswordPrompt,
   openAccountModal,
   saveAccountCredentials,
+  openSettingsModal,
+  saveAppSettings,
   migrateLocalToFirestore,
   seedInitialSampleToFirestore,
   switchTab,
@@ -2719,7 +3149,15 @@ Object.assign(window, {
   recalcBayarTotal,
   submitPembayaran,
   cancelTransaction,
+  resetRiwayatFilter,
+  renderRiwayat,
+  printLaporanKas,
+  renderAuditLogs,
   openWAModal,
+  openBulkWAModal,
+  renderBulkWAList,
+  quickSaveBulkWA,
+  sendBulkWAItem,
   sendKwitansiWA,
   copyWAMessage,
   sendWANow,
