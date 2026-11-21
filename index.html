@@ -17,14 +17,15 @@
 
   <style>
     :root {
-      --brand-primary: #14532d;
-      --brand-primary-dark: #052e16;
-      --brand-primary-mid: #166534;
-      --brand-primary-soft: #f0fdf4;
-      --brand-primary-border: #bbf7d0;
-      --brand-accent: #eab308;
-      --brand-accent-dark: #ca8a04;
-      --brand-accent-text: #0f172a;
+      /* Palet Warna Campuran Biru Dark & Biru Light */
+      --brand-primary: #1e3a8a;        /* Royal Dark Blue */
+      --brand-primary-dark: #0f172a;   /* Deep Navy Dark Blue */
+      --brand-primary-mid: #1d4ed8;    /* Medium Royal Blue */
+      --brand-primary-soft: #eff6ff;   /* Soft Light Blue */
+      --brand-primary-border: #bfdbfe; /* Light Blue Border */
+      --brand-accent: #38bdf8;         /* Sky Light Blue */
+      --brand-accent-dark: #0284c7;    /* Deep Sky Blue */
+      --brand-accent-text: #0f172a;    /* Dark Navy Text */
     }
 
     .bg-brand-primary { background-color: var(--brand-primary); }
@@ -48,10 +49,15 @@
     }
     .btn-brand-accent:hover {
       background-color: var(--brand-accent-dark);
+      color: #ffffff;
     }
 
     .login-backdrop {
-      background: linear-gradient(135deg, var(--brand-primary-dark) 0%, var(--brand-primary) 55%, var(--brand-primary-mid) 100%);
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 52%, #0284c7 100%);
+    }
+
+    .navbar-gradient {
+      background: linear-gradient(90deg, #0f172a 0%, #1e3a8a 60%, #1d4ed8 100%);
     }
 
     @media print {
@@ -76,36 +82,16 @@
       }
     }
   </style>
-
-  <!-- Terapkan tema warna logo yang tersimpan sebelum halaman dirender -->
-  <script>
-    (function () {
-      try {
-        const savedTheme = JSON.parse(localStorage.getItem('alfirdaus_logo_theme_v1'));
-        if (savedTheme && savedTheme.primary) {
-          const r = document.documentElement.style;
-          r.setProperty('--brand-primary', savedTheme.primary);
-          r.setProperty('--brand-primary-dark', savedTheme.primaryDark);
-          r.setProperty('--brand-primary-mid', savedTheme.primaryMid);
-          r.setProperty('--brand-primary-soft', savedTheme.primarySoft);
-          r.setProperty('--brand-primary-border', savedTheme.primaryBorder);
-          r.setProperty('--brand-accent', savedTheme.accent);
-          r.setProperty('--brand-accent-dark', savedTheme.accentDark);
-          r.setProperty('--brand-accent-text', savedTheme.accentText);
-        }
-      } catch (e) {}
-    })();
-  </script>
 </head>
-<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+<body class="bg-sky-50/40 text-slate-800 font-sans min-h-screen flex flex-col">
 
   <!-- ===================================================================== -->
   <!-- HALAMAN LOGIN BENDAHARA (MENGUNCI AKSES SEBELUM LOGIN)                 -->
   <!-- ===================================================================== -->
   <div id="login-screen" class="login-backdrop min-h-screen flex items-center justify-center p-4 no-print">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-white/20">
-      <div class="bg-brand-primary-soft px-6 pt-7 pb-5 text-center border-b border-brand-soft">
-        <div class="w-24 h-24 mx-auto bg-white rounded-2xl p-2 shadow-md border border-slate-200 flex items-center justify-center mb-3">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-sky-200/40">
+      <div class="bg-gradient-to-b from-sky-100/80 to-blue-50/60 px-6 pt-7 pb-5 text-center border-b border-blue-200">
+        <div class="w-24 h-24 mx-auto bg-white rounded-2xl p-2 shadow-md border border-sky-200 flex items-center justify-center mb-3">
           <img
             src="https://lh3.googleusercontent.com/d/1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_"
             onerror="handleLogoFallback(this)"
@@ -113,10 +99,10 @@
             class="w-full h-full object-contain"
           />
         </div>
-        <h1 class="text-lg font-extrabold tracking-wide text-brand-primary">PONPES SIT AL FIRDAUS</h1>
+        <h1 class="text-lg font-extrabold tracking-wide text-blue-950">PONPES SIT AL FIRDAUS</h1>
         <p class="text-xs text-slate-600 mt-0.5">Sistem Pencatatan &amp; Rekapitulasi Biaya Pendidikan</p>
-        <span class="inline-block mt-2.5 px-3 py-1 rounded-full text-[11px] font-bold bg-white text-brand-primary border border-brand-soft shadow-xs">
-          <i class="fa-solid fa-shield-halved mr-1"></i>Portal Khusus Bendahara
+        <span class="inline-block mt-2.5 px-3 py-1 rounded-full text-[11px] font-bold bg-white text-blue-900 border border-sky-300 shadow-xs">
+          <i class="fa-solid fa-shield-halved text-sky-600 mr-1"></i>Portal Khusus Bendahara
         </span>
       </div>
 
@@ -135,9 +121,9 @@
               autocomplete="username"
               placeholder="Masukkan username..."
               required
-              class="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              class="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
             />
-            <i class="fa-solid fa-user absolute left-3 top-3 text-slate-400 text-sm"></i>
+            <i class="fa-solid fa-user absolute left-3 top-3 text-sky-600 text-sm"></i>
           </div>
         </div>
 
@@ -150,13 +136,13 @@
               autocomplete="current-password"
               placeholder="Masukkan password..."
               required
-              class="w-full border border-slate-300 rounded-xl pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              class="w-full border border-slate-300 rounded-xl pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
             />
-            <i class="fa-solid fa-lock absolute left-3 top-3 text-slate-400 text-sm"></i>
+            <i class="fa-solid fa-lock absolute left-3 top-3 text-sky-600 text-sm"></i>
             <button
               type="button"
               onclick="togglePasswordVisibility('login-password', this)"
-              class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 text-sm"
+              class="absolute right-3 top-2.5 text-slate-400 hover:text-blue-900 text-sm"
               title="Tampilkan / Sembunyikan Password"
             >
               <i class="fa-solid fa-eye"></i>
@@ -166,10 +152,10 @@
 
         <div class="flex items-center justify-between text-xs">
           <label class="flex items-center gap-2 text-slate-600 cursor-pointer">
-            <input type="checkbox" id="login-remember" checked class="rounded accent-slate-700" />
+            <input type="checkbox" id="login-remember" checked class="rounded accent-blue-900" />
             <span>Tetap masuk di perangkat ini</span>
           </label>
-          <button type="button" onclick="openResetPasswordPrompt()" class="text-brand-primary hover:underline font-semibold">
+          <button type="button" onclick="openResetPasswordPrompt()" class="text-sky-700 hover:text-blue-900 hover:underline font-semibold">
             Lupa Password?
           </button>
         </div>
@@ -180,8 +166,8 @@
         </button>
       </form>
 
-      <div class="bg-slate-50 px-6 py-3 border-t border-slate-200 text-center text-[11px] text-slate-500">
-        Bendahara Instansi: <strong class="text-slate-700">Restasari, S.Sos</strong>
+      <div class="bg-sky-50/70 px-6 py-3 border-t border-blue-100 text-center text-[11px] text-slate-600">
+        Bendahara Instansi: <strong class="text-blue-950">Restasari, S.Sos</strong>
       </div>
     </div>
   </div>
@@ -192,10 +178,10 @@
   <div id="app-container" class="hidden min-h-screen flex flex-col">
 
     <!-- Navbar -->
-    <header class="bg-brand-primary text-white shadow-md no-print">
+    <header class="navbar-gradient text-white shadow-md no-print border-b border-sky-400/30">
       <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div class="flex items-center gap-3.5">
-          <div class="w-12 h-12 rounded-xl bg-white p-1.5 flex items-center justify-center shadow-md border border-white/40 shrink-0">
+          <div class="w-12 h-12 rounded-xl bg-white p-1.5 flex items-center justify-center shadow-md border-2 border-sky-300 shrink-0">
             <img
               id="navbar-logo"
               src="https://lh3.googleusercontent.com/d/1JCOo87mW-OXolzXoOPYp-V7z5Ya2IDD_"
@@ -205,30 +191,30 @@
             />
           </div>
           <div>
-            <h1 class="text-lg md:text-xl font-bold tracking-wide">PONPES SIT AL FIRDAUS</h1>
-            <p class="text-xs text-white/80">Sistem Pencatatan &amp; Rekapitulasi Biaya Pendidikan (SMPIT / SMAIT)</p>
+            <h1 class="text-lg md:text-xl font-bold tracking-wide text-white">PONPES SIT AL FIRDAUS</h1>
+            <p class="text-xs text-sky-200">Sistem Pencatatan &amp; Rekapitulasi Biaya Pendidikan (SMPIT / SMAIT)</p>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2 text-xs">
-          <div class="bg-black/25 px-3 py-2 rounded-lg border border-white/15">
-            <span class="text-white/75 block text-[10px]">Bendahara Instansi:</span>
+          <div class="bg-slate-950/40 px-3 py-2 rounded-lg border border-sky-400/25">
+            <span class="text-sky-200 block text-[10px]">Bendahara Instansi:</span>
             <span class="font-semibold text-white">Restasari, S.Sos</span>
           </div>
 
-          <label class="cursor-pointer btn-brand-accent font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 shadow">
+          <label class="cursor-pointer btn-brand-accent font-bold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 shadow">
             <i class="fa-solid fa-file-excel"></i>
             <span>Import Excel (.xlsx)</span>
             <input type="file" id="excel-upload" accept=".xlsx,.xls" class="hidden" />
           </label>
 
-          <button onclick="exportToExcel()" class="bg-white/15 hover:bg-white/25 text-white font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 shadow border border-white/25">
-            <i class="fa-solid fa-download"></i>
+          <button onclick="exportToExcel()" class="bg-white/15 hover:bg-sky-500/30 text-white font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 shadow border border-sky-300/30">
+            <i class="fa-solid fa-download text-sky-300"></i>
             <span>Export Rekap</span>
           </button>
 
-          <button onclick="openAccountModal()" class="bg-white/15 hover:bg-white/25 text-white font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 border border-white/25" title="Ganti Username & Password Bendahara">
-            <i class="fa-solid fa-user-shield"></i>
+          <button onclick="openAccountModal()" class="bg-white/15 hover:bg-sky-500/30 text-white font-semibold px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 border border-sky-300/30" title="Ganti Username & Password Bendahara">
+            <i class="fa-solid fa-user-shield text-sky-300"></i>
             <span>Akun</span>
           </button>
 
@@ -245,25 +231,25 @@
 
       <!-- Ringkasan Statistik -->
       <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
             <p class="text-xs font-medium text-slate-500 uppercase">Total Data Santri</p>
-            <span class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fa-solid fa-users"></i></span>
+            <span class="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center"><i class="fa-solid fa-users"></i></span>
           </div>
-          <p id="stat-total-santri" class="text-2xl font-bold text-slate-800 mt-2">0</p>
+          <p id="stat-total-santri" class="text-2xl font-bold text-blue-950 mt-2">0</p>
           <p id="stat-kelas-aktif" class="text-xs text-slate-500 mt-1">Semua Kelas / Unit</p>
         </div>
 
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
             <p class="text-xs font-medium text-slate-500 uppercase">Santri Lunas (s.d Cut-off)</p>
-            <span class="w-8 h-8 rounded-lg bg-brand-primary-soft text-brand-primary flex items-center justify-center"><i class="fa-solid fa-circle-check"></i></span>
+            <span class="w-8 h-8 rounded-lg bg-blue-100 text-blue-900 flex items-center justify-center"><i class="fa-solid fa-circle-check"></i></span>
           </div>
-          <p id="stat-lunas" class="text-2xl font-bold text-brand-primary mt-2">0</p>
+          <p id="stat-lunas" class="text-2xl font-bold text-blue-900 mt-2">0</p>
           <p class="text-xs text-slate-500 mt-1">Tidak ada tunggakan berjalan</p>
         </div>
 
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
             <p class="text-xs font-medium text-slate-500 uppercase">Santri Menunggak</p>
             <span class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><i class="fa-solid fa-clock-rotate-left"></i></span>
@@ -272,57 +258,57 @@
           <p class="text-xs text-slate-500 mt-1">Perlu penagihan ke wali santri</p>
         </div>
 
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
           <div class="flex items-center justify-between">
             <p class="text-xs font-medium text-slate-500 uppercase">Total Tunggakan</p>
-            <span class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center"><i class="fa-solid fa-rupiah-sign"></i></span>
+            <span class="w-8 h-8 rounded-lg bg-sky-100 text-blue-900 flex items-center justify-center"><i class="fa-solid fa-rupiah-sign"></i></span>
           </div>
-          <p id="stat-total-tunggakan" class="text-xl font-bold text-amber-700 mt-2">Rp 0</p>
+          <p id="stat-total-tunggakan" class="text-xl font-bold text-blue-950 mt-2">Rp 0</p>
           <p id="stat-cutoff-label" class="text-xs text-slate-500 mt-1">Cut-off: Semua Bulan</p>
         </div>
       </section>
 
       <!-- Navigation Tabs & Management Controls -->
-      <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-4 border-b border-slate-200 pb-3">
+      <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-4 border-b border-blue-200 pb-3">
         <div class="flex flex-wrap gap-2">
           <button onclick="switchTab('tagihan')" id="tab-tagihan" class="tab-btn btn-brand-primary px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition">
             <i class="fa-solid fa-table-list mr-1.5"></i>Data Tagihan Santri
           </button>
-          <button onclick="switchTab('induk')" id="tab-induk" class="tab-btn bg-white text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 transition">
-            <i class="fa-solid fa-id-card mr-1.5 text-purple-600"></i>Kartu Induk Santri (<span id="badge-induk">0</span>)
+          <button onclick="switchTab('induk')" id="tab-induk" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-id-card mr-1.5 text-sky-600"></i>Kartu Induk Santri (<span id="badge-induk">0</span>)
           </button>
-          <button onclick="switchTab('rekap')" id="tab-rekap" class="tab-btn bg-white text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 transition">
-            <i class="fa-solid fa-chart-pie mr-1.5"></i>Rekapitulasi per Kelas
+          <button onclick="switchTab('rekap')" id="tab-rekap" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-chart-pie mr-1.5 text-sky-600"></i>Rekapitulasi per Kelas
           </button>
-          <button onclick="switchTab('riwayat')" id="tab-riwayat" class="tab-btn bg-white text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 transition">
-            <i class="fa-solid fa-receipt mr-1.5"></i>Riwayat Pembayaran (<span id="badge-transaksi">0</span>)
+          <button onclick="switchTab('riwayat')" id="tab-riwayat" class="tab-btn bg-white text-slate-700 hover:bg-sky-50 px-4 py-2 rounded-lg text-sm font-semibold border border-blue-200 transition">
+            <i class="fa-solid fa-receipt mr-1.5 text-sky-600"></i>Riwayat Pembayaran (<span id="badge-transaksi">0</span>)
           </button>
         </div>
 
         <div class="flex flex-wrap items-center gap-2 text-xs">
-          <button onclick="openAddStudentModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg transition shadow-sm">
+          <button onclick="openAddStudentModal()" class="btn-brand-primary font-semibold px-3 py-2 rounded-lg transition shadow-sm">
             <i class="fa-solid fa-user-plus mr-1"></i>Tambah Santri
           </button>
-          <button onclick="openNewClassModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-2 rounded-lg transition shadow-sm" title="Buat kelas baru atau salin data ke semester berikutnya">
+          <button onclick="openNewClassModal()" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-3 py-2 rounded-lg transition shadow-sm" title="Buat kelas baru atau salin data ke semester berikutnya">
             <i class="fa-solid fa-layer-group mr-1"></i>Buat Kelas / Semester
           </button>
-          <button onclick="backupJSON()" class="bg-slate-700 hover:bg-slate-800 text-white font-medium px-3 py-2 rounded-lg transition" title="Simpan cadangan database ke file JSON">
-            <i class="fa-solid fa-database mr-1"></i>Backup Data
+          <button onclick="backupJSON()" class="bg-slate-800 hover:bg-slate-900 text-white font-medium px-3 py-2 rounded-lg transition" title="Simpan cadangan database ke file JSON">
+            <i class="fa-solid fa-database mr-1 text-sky-300"></i>Backup Data
           </button>
-          <label class="cursor-pointer bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium px-3 py-2 rounded-lg transition" title="Pulihkan data dari file JSON">
-            <i class="fa-solid fa-upload mr-1"></i>Restore
+          <label class="cursor-pointer bg-sky-100 hover:bg-sky-200 text-blue-950 border border-sky-300 font-semibold px-3 py-2 rounded-lg transition" title="Pulihkan data dari file JSON">
+            <i class="fa-solid fa-upload mr-1 text-sky-700"></i>Restore
             <input type="file" id="json-restore" accept=".json" class="hidden" />
           </label>
         </div>
       </div>
 
       <!-- FILTER BAR TERPADU (UNIT, SEMESTER, KELAS, CUT-OFF, STATUS, CARI) -->
-      <div id="global-filter-bar" class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+      <div id="global-filter-bar" class="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-4">
         <div class="flex items-center justify-between mb-2.5">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-500">
-            <i class="fa-solid fa-filter mr-1 text-brand-primary"></i>Filter Data Kelas, Semester &amp; Periode
+          <span class="text-xs font-bold uppercase tracking-wider text-blue-950">
+            <i class="fa-solid fa-filter mr-1 text-sky-600"></i>Filter Data Kelas, Semester &amp; Periode
           </span>
-          <button onclick="resetFilters()" class="text-xs text-brand-primary hover:underline font-semibold">
+          <button onclick="resetFilters()" class="text-xs text-sky-700 hover:text-blue-900 hover:underline font-semibold">
             <i class="fa-solid fa-rotate-left mr-1"></i>Reset Filter
           </button>
         </div>
@@ -330,7 +316,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Unit Pendidikan</label>
-            <select id="filter-unit" onchange="onUnitOrSemesterChange()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none">
+            <select id="filter-unit" onchange="onUnitOrSemesterChange()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none focus:border-sky-500">
               <option value="ALL">Semua Unit</option>
               <option value="SMPIT">SMPIT Al Firdaus</option>
               <option value="SMAIT">SMAIT Al Firdaus</option>
@@ -340,7 +326,7 @@
 
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Semester</label>
-            <select id="filter-semester" onchange="onUnitOrSemesterChange(true)" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none">
+            <select id="filter-semester" onchange="onUnitOrSemesterChange(true)" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none focus:border-sky-500">
               <option value="ALL">Semua Semester</option>
               <option value="SMT1">Semester 1 (Jul–Des)</option>
               <option value="SMT2">Semester 2 (Jan–Jun)</option>
@@ -350,14 +336,14 @@
 
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Pilih Kelas / Sheet</label>
-            <select id="filter-sheet" onchange="renderTable()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none">
+            <select id="filter-sheet" onchange="renderTable()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none focus:border-sky-500">
               <option value="ALL">-- Semua Kelas / Sheet --</option>
             </select>
           </div>
 
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Cut-off Hitung Tunggakan</label>
-            <select id="filter-cutoff" onchange="renderTable()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none">
+            <select id="filter-cutoff" onchange="renderTable()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none focus:border-sky-500">
               <option value="ALL">Semua Bulan (Full)</option>
               <optgroup label="Semester 1 (Tahun Pertama)">
                 <option value="Juli">s.d. Juli</option>
@@ -380,7 +366,7 @@
 
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Status Pembayaran</label>
-            <select id="filter-status" onchange="renderTable()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none">
+            <select id="filter-status" onchange="renderTable()" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium focus:outline-none focus:border-sky-500">
               <option value="ALL">Semua Status</option>
               <option value="TUNGGAKAN">Menunggak (&gt; Rp 0)</option>
               <option value="LUNAS">Lunas (Rp 0)</option>
@@ -390,8 +376,8 @@
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Cari Nama Santri</label>
             <div class="relative">
-              <input type="text" id="filter-search" oninput="renderTable()" placeholder="Ketik nama..." class="w-full border border-slate-300 rounded-lg pl-8 pr-2.5 py-2 text-xs focus:outline-none" />
-              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
+              <input type="text" id="filter-search" oninput="renderTable()" placeholder="Ketik nama..." class="w-full border border-slate-300 rounded-lg pl-8 pr-2.5 py-2 text-xs focus:outline-none focus:border-sky-500" />
+              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-sky-600 text-xs"></i>
             </div>
           </div>
         </div>
@@ -399,22 +385,22 @@
 
       <!-- VIEW 1: DATA TAGIHAN SANTRI -->
       <section id="view-tagihan">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
-              <thead class="bg-slate-100 text-slate-700 text-xs uppercase border-b border-slate-200">
+              <thead class="bg-gradient-to-r from-blue-950 to-blue-900 text-white text-xs uppercase border-b border-blue-800">
                 <tr>
-                  <th class="px-4 py-3 w-12">No</th>
-                  <th class="px-4 py-3">Nama Santri</th>
-                  <th class="px-4 py-3">Kelas &amp; Semester</th>
-                  <th class="px-4 py-3 text-right">SPP Dasar</th>
-                  <th class="px-4 py-3">Rincian Pos Menunggak</th>
-                  <th class="px-4 py-3 text-right">Total Tunggakan</th>
-                  <th class="px-4 py-3 text-center">Status</th>
-                  <th class="px-4 py-3 text-center">Aksi Bendahara</th>
+                  <th class="px-4 py-3.5 w-12">No</th>
+                  <th class="px-4 py-3.5">Nama Santri</th>
+                  <th class="px-4 py-3.5">Kelas &amp; Semester</th>
+                  <th class="px-4 py-3.5 text-right">SPP Dasar</th>
+                  <th class="px-4 py-3.5">Rincian Pos Menunggak</th>
+                  <th class="px-4 py-3.5 text-right">Total Tunggakan</th>
+                  <th class="px-4 py-3.5 text-center">Status</th>
+                  <th class="px-4 py-3.5 text-center">Aksi Bendahara</th>
                 </tr>
               </thead>
-              <tbody id="table-body" class="divide-y divide-slate-100"></tbody>
+              <tbody id="table-body" class="divide-y divide-blue-50"></tbody>
             </table>
           </div>
         </div>
@@ -422,38 +408,38 @@
 
       <!-- VIEW 2: KARTU INDUK SANTRI (REKAP GABUNGAN LINTAS SEMESTER) -->
       <section id="view-induk" class="hidden space-y-4">
-        <div class="bg-brand-primary-soft border border-brand-soft rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="bg-gradient-to-r from-blue-950 via-blue-900 to-sky-800 text-white rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm">
           <div>
-            <h2 class="font-bold text-brand-primary text-sm flex items-center gap-2">
-              <i class="fa-solid fa-id-card"></i>
+            <h2 class="font-bold text-sm flex items-center gap-2">
+              <i class="fa-solid fa-id-card text-sky-300"></i>
               Kartu Induk Santri — Rekap Gabungan Lintas Semester &amp; Jenjang
             </h2>
-            <p class="text-xs text-slate-700 mt-0.5">
+            <p class="text-xs text-sky-100 mt-0.5">
               Menggabungkan otomatis seluruh riwayat biaya seorang santri (Smt 1, Smt 2, hingga jenjang berikutnya) menjadi satu profil terpadu.
             </p>
           </div>
           <div class="flex flex-wrap gap-2 text-xs">
-            <div class="bg-white px-3 py-1.5 rounded-lg border border-brand-soft">
-              <span class="text-slate-500">Total Santri Unik:</span>
-              <strong id="induk-stat-unique" class="text-brand-primary ml-1">0</strong>
+            <div class="bg-white/15 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-sky-300/30">
+              <span class="text-sky-200">Total Santri Unik:</span>
+              <strong id="induk-stat-unique" class="text-white ml-1">0</strong>
             </div>
-            <div class="bg-white px-3 py-1.5 rounded-lg border border-brand-soft">
-              <span class="text-slate-500">Terhubung Lintas Smt:</span>
-              <strong id="induk-stat-multi" class="text-indigo-700 ml-1">0</strong>
+            <div class="bg-white/15 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-sky-300/30">
+              <span class="text-sky-200">Terhubung Lintas Smt:</span>
+              <strong id="induk-stat-multi" class="text-sky-300 ml-1">0</strong>
             </div>
-            <div class="bg-white px-3 py-1.5 rounded-lg border border-brand-soft">
-              <span class="text-slate-500">Total Tunggakan Gabungan:</span>
+            <div class="bg-white px-3 py-1.5 rounded-lg border border-sky-200">
+              <span class="text-slate-600">Total Tunggakan Gabungan:</span>
               <strong id="induk-stat-total" class="text-rose-700 ml-1">Rp 0</strong>
             </div>
           </div>
         </div>
 
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-blue-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Cari Nama Santri</label>
             <div class="relative">
-              <input type="text" id="induk-search" oninput="renderIndukTab()" placeholder="Ketik nama santri..." class="w-full border border-slate-300 rounded-lg pl-8 pr-2.5 py-2 text-xs focus:outline-none" />
-              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
+              <input type="text" id="induk-search" oninput="renderIndukTab()" placeholder="Ketik nama santri..." class="w-full border border-slate-300 rounded-lg pl-8 pr-2.5 py-2 text-xs focus:outline-none focus:border-sky-500" />
+              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-sky-600 text-xs"></i>
             </div>
           </div>
           <div>
@@ -483,28 +469,28 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Mode Hitung Lintas Sheet</label>
-            <select id="induk-dedup-mode" onchange="renderIndukTab()" class="w-full border border-brand-soft bg-brand-primary-soft rounded-lg px-2.5 py-2 text-xs font-semibold text-brand-primary">
+            <select id="induk-dedup-mode" onchange="renderIndukTab()" class="w-full border border-sky-300 bg-sky-50 rounded-lg px-2.5 py-2 text-xs font-semibold text-blue-950">
               <option value="DEDUP">Hitung Bersih (Anti-Ganda)</option>
               <option value="RAW">Semua Sheet Apa Adanya</option>
             </select>
           </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
-              <thead class="bg-slate-100 text-slate-700 text-xs uppercase border-b border-slate-200">
+              <thead class="bg-gradient-to-r from-blue-950 to-blue-900 text-white text-xs uppercase border-b border-blue-800">
                 <tr>
-                  <th class="px-4 py-3 w-12">No</th>
-                  <th class="px-4 py-3">Nama Santri</th>
-                  <th class="px-4 py-3">Riwayat Kelas &amp; Semester Terhubung</th>
-                  <th class="px-4 py-3">Ringkasan Tunggakan per Semester</th>
-                  <th class="px-4 py-3 text-right">Total Tunggakan Gabungan</th>
-                  <th class="px-4 py-3 text-center">Status</th>
-                  <th class="px-4 py-3 text-center">Aksi Profil</th>
+                  <th class="px-4 py-3.5 w-12">No</th>
+                  <th class="px-4 py-3.5">Nama Santri</th>
+                  <th class="px-4 py-3.5">Riwayat Kelas &amp; Semester Terhubung</th>
+                  <th class="px-4 py-3.5">Ringkasan Tunggakan per Semester</th>
+                  <th class="px-4 py-3.5 text-right">Total Tunggakan Gabungan</th>
+                  <th class="px-4 py-3.5 text-center">Status</th>
+                  <th class="px-4 py-3.5 text-center">Aksi Profil</th>
                 </tr>
               </thead>
-              <tbody id="induk-body" class="divide-y divide-slate-100"></tbody>
+              <tbody id="induk-body" class="divide-y divide-blue-50"></tbody>
             </table>
           </div>
         </div>
@@ -512,32 +498,32 @@
 
       <!-- VIEW 3: REKAPITULASI PER KELAS -->
       <section id="view-rekap" class="hidden">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div class="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
+          <div class="p-4 border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-sky-50/50">
             <div>
-              <h2 class="font-bold text-slate-800">Rekapitulasi Tunggakan per Kelas &amp; Semester</h2>
+              <h2 class="font-bold text-blue-950">Rekapitulasi Tunggakan per Kelas &amp; Semester</h2>
               <p class="text-xs text-slate-500">Menyesuaikan otomatis dengan filter Unit, Semester, dan Cut-off Bulan di atas</p>
             </div>
-            <button onclick="printRekapSummary()" class="btn-brand-primary text-xs font-semibold px-3 py-2 rounded-lg">
+            <button onclick="printRekapSummary()" class="btn-brand-primary text-xs font-semibold px-3 py-2 rounded-lg shadow-xs">
               <i class="fa-solid fa-print mr-1"></i>Cetak Rekapitulasi
             </button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
-              <thead class="bg-slate-100 text-slate-700 text-xs uppercase border-b border-slate-200">
+              <thead class="bg-gradient-to-r from-blue-950 to-blue-900 text-white text-xs uppercase border-b border-blue-800">
                 <tr>
-                  <th class="px-4 py-3">No</th>
-                  <th class="px-4 py-3">Kelas / Sheet</th>
-                  <th class="px-4 py-3">Unit</th>
-                  <th class="px-4 py-3">Semester</th>
-                  <th class="px-4 py-3 text-center">Jml Santri</th>
-                  <th class="px-4 py-3 text-center">Lunas</th>
-                  <th class="px-4 py-3 text-center">Menunggak</th>
-                  <th class="px-4 py-3 text-right">Total Nominal Tunggakan</th>
+                  <th class="px-4 py-3.5">No</th>
+                  <th class="px-4 py-3.5">Kelas / Sheet</th>
+                  <th class="px-4 py-3.5">Unit</th>
+                  <th class="px-4 py-3.5">Semester</th>
+                  <th class="px-4 py-3.5 text-center">Jml Santri</th>
+                  <th class="px-4 py-3.5 text-center">Lunas</th>
+                  <th class="px-4 py-3.5 text-center">Menunggak</th>
+                  <th class="px-4 py-3.5 text-right">Total Nominal Tunggakan</th>
                 </tr>
               </thead>
-              <tbody id="rekap-body" class="divide-y divide-slate-100"></tbody>
-              <tfoot id="rekap-foot" class="bg-brand-primary-soft font-bold text-brand-primary border-t-2 border-brand-soft"></tfoot>
+              <tbody id="rekap-body" class="divide-y divide-blue-50"></tbody>
+              <tfoot id="rekap-foot" class="bg-sky-100/80 font-bold text-blue-950 border-t-2 border-sky-300"></tfoot>
             </table>
           </div>
         </div>
@@ -545,27 +531,27 @@
 
       <!-- VIEW 4: RIWAYAT PEMBAYARAN -->
       <section id="view-riwayat" class="hidden">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+        <div class="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
+          <div class="p-4 border-b border-blue-100 flex items-center justify-between bg-sky-50/50">
             <div>
-              <h2 class="font-bold text-slate-800">Log Transaksi Pembayaran Masuk</h2>
+              <h2 class="font-bold text-blue-950">Log Transaksi Pembayaran Masuk</h2>
               <p class="text-xs text-slate-500">Setiap pelunasan otomatis mengurangi saldo tagihan santri terkait (termasuk pos bawaan lintas semester)</p>
             </div>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
-              <thead class="bg-slate-100 text-slate-700 text-xs uppercase border-b border-slate-200">
+              <thead class="bg-gradient-to-r from-blue-950 to-blue-900 text-white text-xs uppercase border-b border-blue-800">
                 <tr>
-                  <th class="px-4 py-3">No. Kwitansi</th>
-                  <th class="px-4 py-3">Tanggal</th>
-                  <th class="px-4 py-3">Nama Santri</th>
-                  <th class="px-4 py-3">Kelas</th>
-                  <th class="px-4 py-3">Rincian Pembayaran</th>
-                  <th class="px-4 py-3 text-right">Nominal Bayar</th>
-                  <th class="px-4 py-3 text-center">Kirim / Cetak / Koreksi</th>
+                  <th class="px-4 py-3.5">No. Kwitansi</th>
+                  <th class="px-4 py-3.5">Tanggal</th>
+                  <th class="px-4 py-3.5">Nama Santri</th>
+                  <th class="px-4 py-3.5">Kelas</th>
+                  <th class="px-4 py-3.5">Rincian Pembayaran</th>
+                  <th class="px-4 py-3.5 text-right">Nominal Bayar</th>
+                  <th class="px-4 py-3.5 text-center">Kirim / Cetak / Koreksi</th>
                 </tr>
               </thead>
-              <tbody id="riwayat-body" class="divide-y divide-slate-100"></tbody>
+              <tbody id="riwayat-body" class="divide-y divide-blue-50"></tbody>
             </table>
           </div>
         </div>
@@ -573,8 +559,8 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500 no-print">
-      &copy; 2026 Keuangan Ponpes SIT Al Firdaus Bandarlampung &bull; Bendahara: <strong>Restasari, S.Sos</strong>
+    <footer class="bg-white border-t border-blue-100 py-4 text-center text-xs text-slate-500 no-print">
+      &copy; 2026 Keuangan Ponpes SIT Al Firdaus Bandarlampung &bull; Bendahara: <strong class="text-blue-950">Restasari, S.Sos</strong>
     </footer>
   </div>
 
@@ -583,14 +569,14 @@
   <!-- ===================================================================== -->
 
   <!-- MODAL 1: INPUT PEMBAYARAN (SATU SHEET) -->
-  <div id="modal-bayar" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4 no-print">
-    <div class="bg-white rounded-2xl max-w-xl w-full shadow-2xl overflow-hidden">
-      <div class="bg-brand-primary text-white px-5 py-4 flex items-center justify-between">
+  <div id="modal-bayar" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-xl w-full shadow-2xl overflow-hidden border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-base"><i class="fa-solid fa-money-bill-wave mr-2"></i>Input Pembayaran Santri</h3>
-          <p id="bayar-subtitle" class="text-xs text-white/80 mt-0.5"></p>
+          <h3 class="font-bold text-base"><i class="fa-solid fa-money-bill-wave text-sky-300 mr-2"></i>Input Pembayaran Santri</h3>
+          <p id="bayar-subtitle" class="text-xs text-sky-200 mt-0.5"></p>
         </div>
-        <button onclick="closeModal('modal-bayar')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeModal('modal-bayar')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 max-h-[80vh] overflow-y-auto space-y-4">
         <input type="hidden" id="bayar-student-id" />
@@ -611,12 +597,12 @@
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="block text-xs font-semibold text-slate-600">Pilih Pos Tagihan yang Dibayar / Dicicil</label>
-            <button type="button" onclick="checkAllBayarItems()" class="text-xs text-brand-primary hover:underline font-semibold">
+            <button type="button" onclick="checkAllBayarItems()" class="text-xs text-sky-700 hover:text-blue-900 hover:underline font-semibold">
               Centang Semua Lunas
             </button>
           </div>
           <p class="text-xs text-slate-500 mb-2">Centang kotak untuk pelunasan penuh, atau ubah nominal jika wali santri mencicil sebagian:</p>
-          <div id="bayar-items-list" class="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50 max-h-60 overflow-y-auto"></div>
+          <div id="bayar-items-list" class="space-y-2 border border-blue-100 rounded-xl p-3 bg-sky-50/40 max-h-60 overflow-y-auto"></div>
         </div>
 
         <div>
@@ -624,9 +610,9 @@
           <input type="text" id="bayar-catatan" placeholder="Contoh: Ditransfer oleh Ibu / Wali Santri" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
         </div>
 
-        <div class="bg-brand-primary-soft border border-brand-soft rounded-xl p-3 flex items-center justify-between">
-          <span class="text-sm font-semibold text-brand-primary">Total Nominal Dibayarkan:</span>
-          <span id="bayar-total-preview" class="text-lg font-bold text-brand-primary">Rp 0</span>
+        <div class="bg-sky-100/80 border border-sky-300 rounded-xl p-3 flex items-center justify-between">
+          <span class="text-sm font-semibold text-blue-950">Total Nominal Dibayarkan:</span>
+          <span id="bayar-total-preview" class="text-lg font-bold text-blue-900">Rp 0</span>
         </div>
       </div>
       <div class="px-5 py-3 bg-slate-100 flex justify-end gap-2">
@@ -639,20 +625,20 @@
   </div>
 
   <!-- MODAL 2: DETAIL KARTU INDUK SANTRI (LINTAS SEMESTER) -->
-  <div id="modal-induk" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4 no-print">
-    <div class="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-      <div class="bg-brand-primary text-white px-5 py-4 flex items-center justify-between">
+  <div id="modal-induk" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
         <div>
           <h3 id="induk-modal-nama" class="font-bold text-lg">Kartu Induk Santri</h3>
-          <p id="induk-modal-subtitle" class="text-xs text-white/80 mt-0.5"></p>
+          <p id="induk-modal-subtitle" class="text-xs text-sky-200 mt-0.5"></p>
         </div>
-        <button onclick="closeModal('modal-induk')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeModal('modal-induk')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
       <div class="p-5 overflow-y-auto space-y-4 flex-1">
         <input type="hidden" id="induk-modal-norm-name" />
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-sky-50/60 p-3.5 rounded-xl border border-blue-100">
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">No. WhatsApp Wali Santri (Tersinkron ke Semua Sheet)</label>
             <div class="flex gap-1.5">
@@ -664,16 +650,16 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Mode Perhitungan Tunggakan Lintas Semester</label>
-            <select id="induk-modal-mode" onchange="refreshIndukDetailModal()" class="w-full border border-brand-soft bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold text-brand-primary">
+            <select id="induk-modal-mode" onchange="refreshIndukDetailModal()" class="w-full border border-sky-300 bg-white rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-950">
               <option value="DEDUP">Hitung Bersih (Otomatis Hindari Duplikat Lintas Sheet)</option>
               <option value="RAW">Jumlahkan Semua Baris Sheet Apa Adanya</option>
             </select>
           </div>
         </div>
 
-        <div class="bg-brand-primary-soft border border-brand-soft rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div class="bg-sky-100/70 border border-sky-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <span class="text-xs font-bold uppercase tracking-wider text-brand-primary">Total Akumulasi Tunggakan Santri</span>
+            <span class="text-xs font-bold uppercase tracking-wider text-blue-950">Total Akumulasi Tunggakan Santri</span>
             <p id="induk-modal-dedup-note" class="text-[11px] text-slate-600 mt-0.5"></p>
           </div>
           <div class="text-right">
@@ -691,10 +677,10 @@
             <i class="fa-brands fa-whatsapp mr-1"></i>Kirim Tagihan Gabungan (WA)
           </button>
           <button onclick="openPrintInduk()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm">
-            <i class="fa-solid fa-print mr-1"></i>Cetak Surat Gabungan (PDF)
+            <i class="fa-solid fa-print mr-1 text-sky-300"></i>Cetak Surat Gabungan (PDF)
           </button>
           <button onclick="openBayarGabunganModal()" class="btn-brand-primary text-xs font-semibold px-4 py-2 rounded-lg shadow">
-            <i class="fa-solid fa-cash-register mr-1"></i>Bayar Gabungan Lintas Smt
+            <i class="fa-solid fa-cash-register mr-1 text-sky-300"></i>Bayar Gabungan Lintas Smt
           </button>
         </div>
       </div>
@@ -702,14 +688,14 @@
   </div>
 
   <!-- MODAL 3: PEMBAYARAN GABUNGAN LINTAS SEMESTER -->
-  <div id="modal-bayar-gabungan" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4 no-print">
-    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden">
-      <div class="bg-brand-primary text-white px-5 py-4 flex items-center justify-between">
+  <div id="modal-bayar-gabungan" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-base"><i class="fa-solid fa-layer-group mr-2"></i>Pembayaran Gabungan Lintas Semester</h3>
-          <p id="bayar-gab-subtitle" class="text-xs text-white/80 mt-0.5"></p>
+          <h3 class="font-bold text-base"><i class="fa-solid fa-layer-group text-sky-300 mr-2"></i>Pembayaran Gabungan Lintas Semester</h3>
+          <p id="bayar-gab-subtitle" class="text-xs text-sky-200 mt-0.5"></p>
         </div>
-        <button onclick="closeModal('modal-bayar-gabungan')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeModal('modal-bayar-gabungan')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 max-h-[78vh] overflow-y-auto space-y-4">
         <input type="hidden" id="bayar-gab-norm-name" />
@@ -730,12 +716,12 @@
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="block text-xs font-semibold text-slate-600">Pilih Pos Tagihan dari Semua Semester</label>
-            <button type="button" onclick="checkAllBayarGabItems()" class="text-xs text-brand-primary hover:underline font-semibold">
+            <button type="button" onclick="checkAllBayarGabItems()" class="text-xs text-sky-700 hover:text-blue-900 hover:underline font-semibold">
               Centang Semua Pos Bersih
             </button>
           </div>
           <p class="text-xs text-slate-500 mb-2">Pos bawaan/duplikat otomatis ditandai agar tidak terbayar ganda. Saldo antar-semester akan tersinkron otomatis.</p>
-          <div id="bayar-gab-items-list" class="space-y-3 border border-slate-200 rounded-xl p-3 bg-slate-50 max-h-64 overflow-y-auto"></div>
+          <div id="bayar-gab-items-list" class="space-y-3 border border-blue-100 rounded-xl p-3 bg-sky-50/40 max-h-64 overflow-y-auto"></div>
         </div>
 
         <div>
@@ -743,9 +729,9 @@
           <input type="text" id="bayar-gab-catatan" placeholder="Contoh: Pelunasan tunggakan Smt 1 &amp; Smt 2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
         </div>
 
-        <div class="bg-brand-primary-soft border border-brand-soft rounded-xl p-3 flex items-center justify-between">
-          <span class="text-sm font-semibold text-brand-primary">Total Pembayaran Gabungan:</span>
-          <span id="bayar-gab-total-preview" class="text-lg font-bold text-brand-primary">Rp 0</span>
+        <div class="bg-sky-100/80 border border-sky-300 rounded-xl p-3 flex items-center justify-between">
+          <span class="text-sm font-semibold text-blue-950">Total Pembayaran Gabungan:</span>
+          <span id="bayar-gab-total-preview" class="text-lg font-bold text-blue-900">Rp 0</span>
         </div>
       </div>
       <div class="px-5 py-3 bg-slate-100 flex justify-end gap-2">
@@ -758,11 +744,11 @@
   </div>
 
   <!-- MODAL 4: TAMBAH / EDIT DATA SANTRI -->
-  <div id="modal-edit" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4 no-print">
-    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden">
-      <div class="bg-brand-primary text-white px-5 py-4 flex items-center justify-between">
+  <div id="modal-edit" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
         <h3 id="edit-modal-title" class="font-bold text-base">Tambah / Edit Data Tagihan Santri</h3>
-        <button onclick="closeModal('modal-edit')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeModal('modal-edit')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 max-h-[80vh] overflow-y-auto space-y-4">
         <input type="hidden" id="edit-student-id" />
@@ -786,13 +772,13 @@
           </div>
         </div>
 
-        <div class="bg-brand-primary-soft border border-brand-soft rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
-          <span class="text-xs font-semibold text-brand-primary"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Isi Otomatis Template Semester:</span>
+        <div class="bg-sky-50 border border-sky-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-xs font-semibold text-blue-950"><i class="fa-solid fa-wand-magic-sparkles text-sky-600 mr-1"></i>Isi Otomatis Template Semester:</span>
           <div class="flex flex-wrap gap-1.5">
-            <button type="button" onclick="applyFeeTemplate('SMT1')" class="text-xs bg-white hover:bg-slate-100 text-brand-primary font-semibold px-2.5 py-1 rounded border border-brand-soft">
+            <button type="button" onclick="applyFeeTemplate('SMT1')" class="text-xs bg-white hover:bg-sky-100 text-blue-950 font-semibold px-2.5 py-1 rounded border border-sky-300">
               Template Smt 1 (Jul–Des)
             </button>
-            <button type="button" onclick="applyFeeTemplate('SMT2')" class="text-xs bg-white hover:bg-slate-100 text-brand-primary font-semibold px-2.5 py-1 rounded border border-brand-soft">
+            <button type="button" onclick="applyFeeTemplate('SMT2')" class="text-xs bg-white hover:bg-sky-100 text-blue-950 font-semibold px-2.5 py-1 rounded border border-sky-300">
               Template Smt 2 (Jan–Jun)
             </button>
           </div>
@@ -801,11 +787,11 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <label class="block text-xs font-semibold text-slate-600">Rincian Sisa Tagihan per Pos (Rp)</label>
-            <button type="button" onclick="addEditFeeRow()" class="text-xs bg-brand-primary-soft text-brand-primary font-semibold px-2.5 py-1 rounded-md border border-brand-soft">
+            <button type="button" onclick="addEditFeeRow()" class="text-xs bg-sky-100 hover:bg-sky-200 text-blue-950 font-semibold px-2.5 py-1 rounded-md border border-sky-300">
               + Tambah Pos Biaya
             </button>
           </div>
-          <div id="edit-fees-container" class="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50 max-h-64 overflow-y-auto"></div>
+          <div id="edit-fees-container" class="space-y-2 border border-blue-100 rounded-xl p-3 bg-sky-50/40 max-h-64 overflow-y-auto"></div>
         </div>
       </div>
       <div class="px-5 py-3 bg-slate-100 flex items-center justify-between gap-2">
@@ -823,14 +809,14 @@
   </div>
 
   <!-- MODAL 5: BUAT KELAS / SEMESTER BARU (MIGRASI MASSAL) -->
-  <div id="modal-new-class" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4 no-print">
-    <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
-      <div class="bg-brand-primary text-white px-5 py-4 flex items-center justify-between">
+  <div id="modal-new-class" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-base"><i class="fa-solid fa-layer-group mr-2"></i>Buat Kelas / Semester Baru</h3>
-          <p class="text-xs text-white/80 mt-0.5">Membuat sheet semester lanjutan (misal: 10 smt 2) atau kelas baru</p>
+          <h3 class="font-bold text-base"><i class="fa-solid fa-layer-group text-sky-300 mr-2"></i>Buat Kelas / Semester Baru</h3>
+          <p class="text-xs text-sky-200 mt-0.5">Membuat sheet semester lanjutan (misal: 10 smt 2) atau kelas baru</p>
         </div>
-        <button onclick="closeModal('modal-new-class')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeModal('modal-new-class')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 space-y-4">
         <div>
@@ -846,14 +832,14 @@
           </select>
         </div>
 
-        <div id="newclass-migration-options" class="space-y-3 bg-brand-primary-soft p-3.5 rounded-xl border border-brand-soft hidden">
-          <label class="flex items-start gap-2 text-xs font-semibold text-slate-800 cursor-pointer">
-            <input type="checkbox" id="newclass-carry-arrears" checked class="mt-0.5" />
+        <div id="newclass-migration-options" class="space-y-3 bg-sky-50 p-3.5 rounded-xl border border-sky-200 hidden">
+          <label class="flex items-start gap-2 text-xs font-semibold text-blue-950 cursor-pointer">
+            <input type="checkbox" id="newclass-carry-arrears" checked class="mt-0.5 accent-blue-900" />
             <span>Bawa sisa tunggakan dari kelas asal ke dalam pos <b>"Sisa [Nama Kelas Asal]"</b></span>
           </label>
           <div>
-            <label class="block text-xs font-semibold text-slate-800 mb-1">Generate Tagihan Bulanan Baru:</label>
-            <select id="newclass-months" class="w-full border border-slate-300 bg-white rounded-lg px-2.5 py-1.5 text-xs">
+            <label class="block text-xs font-semibold text-blue-950 mb-1">Generate Tagihan Bulanan Baru:</label>
+            <select id="newclass-months" class="w-full border border-sky-300 bg-white rounded-lg px-2.5 py-1.5 text-xs">
               <option value="SMT2">Semester 2 (Januari – Juni) sesuai SPP Dasar</option>
               <option value="SMT1">Semester 1 (Juli – Desember) sesuai SPP Dasar</option>
               <option value="NONE">Tidak perlu generate bulan (hanya bawa sisa tunggakan)</option>
@@ -871,7 +857,7 @@
   </div>
 
   <!-- MODAL 6: KIRIM WHATSAPP KE ORANG TUA / WALI -->
-  <div id="modal-wa" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4 no-print">
+  <div id="modal-wa" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
     <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
       <div class="bg-green-600 text-white px-5 py-4 flex items-center justify-between">
         <h3 class="font-bold text-base"><i class="fa-brands fa-whatsapp mr-2 text-lg"></i>Kirim Pesan ke Wali Santri</h3>
@@ -899,14 +885,14 @@
   </div>
 
   <!-- MODAL 7: PENGATURAN AKUN BENDAHARA (GANTI USERNAME & PASSWORD) -->
-  <div id="modal-account" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4 no-print">
-    <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
-      <div class="bg-brand-primary text-white px-5 py-4 flex items-center justify-between">
+  <div id="modal-account" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-4 flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-base"><i class="fa-solid fa-user-shield mr-2"></i>Pengaturan Akun Bendahara</h3>
-          <p class="text-xs text-white/80 mt-0.5">Ubah Username &amp; Password akses aplikasi</p>
+          <h3 class="font-bold text-base"><i class="fa-solid fa-user-shield text-sky-300 mr-2"></i>Pengaturan Akun Bendahara</h3>
+          <p class="text-xs text-sky-200 mt-0.5">Ubah Username &amp; Password akses aplikasi</p>
         </div>
-        <button onclick="closeModal('modal-account')" class="text-white/80 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeModal('modal-account')" class="text-sky-200 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form onsubmit="saveAccountCredentials(event)" class="p-5 space-y-3.5">
         <div>
@@ -936,15 +922,15 @@
   </div>
 
   <!-- MODAL 8: PREVIEW SURAT TAGIHAN / KWITANSI PDF -->
-  <div id="modal-print" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-      <div class="bg-slate-800 text-white px-5 py-3 flex items-center justify-between no-print">
-        <h3 class="font-bold text-sm"><i class="fa-solid fa-file-invoice mr-2"></i>Pratinjau Dokumen Resmi</h3>
+  <div id="modal-print" class="fixed inset-0 bg-slate-950/60 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-sky-200">
+      <div class="navbar-gradient text-white px-5 py-3 flex items-center justify-between no-print">
+        <h3 class="font-bold text-sm"><i class="fa-solid fa-file-invoice text-sky-300 mr-2"></i>Pratinjau Dokumen Resmi</h3>
         <div class="flex items-center gap-2">
-          <button onclick="window.print()" class="btn-brand-primary text-xs font-semibold px-3 py-1.5 rounded-lg">
+          <button onclick="window.print()" class="btn-brand-accent text-xs font-bold px-3 py-1.5 rounded-lg shadow">
             <i class="fa-solid fa-print mr-1"></i>Cetak / Simpan PDF
           </button>
-          <button onclick="closeModal('modal-print')" class="text-white/80 hover:text-white text-lg px-2"><i class="fa-solid fa-xmark"></i></button>
+          <button onclick="closeModal('modal-print')" class="text-sky-200 hover:text-white text-lg px-2"><i class="fa-solid fa-xmark"></i></button>
         </div>
       </div>
       <div class="p-6 overflow-y-auto bg-white" id="print-area"></div>
