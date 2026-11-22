@@ -85,6 +85,8 @@ let unsubAuditLogs = null;
 let unsubSettings = null;
 let uiListenersAttached = false;
 let isSubmittingPayment = false;
+let isSidebarExpanded = false;
+let activeTabName = 'tagihan';
 const sentWATodaySet = new Set();
 
 // Data contoh awal (opsional jika database masih kosong)
@@ -175,6 +177,127 @@ function handleLogoFallback(imgEl) {
 }
 
 // ============================================================================
+// MENU SAMPING KIRI RESPONSIF (HAMBURGER ☰ <-> TUTUP X)
+// ============================================================================
+function toggleSidebar(forceState) {
+  if (typeof forceState === 'boolean') {
+    isSidebarExpanded = forceState;
+  } else {
+    isSidebarExpanded = !isSidebarExpanded;
+  }
+  applySidebarState();
+}
+
+function closeSidebarOnMobile() {
+  if (window.innerWidth < 768 && isSidebarExpanded) {
+    isSidebarExpanded = false;
+    applySidebarState();
+  }
+}
+
+function applySidebarState() {
+  const sidebar = document.getElementById('left-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const headerRow = document.getElementById('sidebar-header-row');
+  const toggleBtn = document.getElementById('sidebar-toggle-btn');
+  const toggleIcon = document.getElementById('sidebar-toggle-icon');
+  const mobileBtn = document.getElementById('mobile-sidebar-btn');
+  const mobileIcon = document.getElementById('mobile-sidebar-icon');
+  if (!sidebar) return;
+
+  const isMobile = window.innerWidth < 768;
+
+  if (isSidebarExpanded) {
+    // Mode Diperlebar: ikon berubah menjadi X
+    sidebar.classList.remove('-translate-x-full', 'md:w-[74px]');
+    sidebar.classList.add('translate-x-0', 'md:w-64');
+
+    if (headerRow) {
+      headerRow.classList.remove('justify-center');
+      headerRow.classList.add('justify-between');
+    }
+
+    if (toggleIcon) toggleIcon.className = 'fa-solid fa-xmark text-base';
+    if (mobileIcon) mobileIcon.className = 'fa-solid fa-xmark text-base';
+    if (toggleBtn) {
+      toggleBtn.setAttribute('aria-expanded', 'true');
+      toggleBtn.setAttribute('title', 'Ciutkan Menu Samping');
+    }
+    if (mobileBtn) {
+      mobileBtn.setAttribute('aria-expanded', 'true');
+      mobileBtn.setAttribute('title', 'Tutup Menu Samping');
+    }
+
+    document.querySelectorAll('.sidebar-label').forEach((el) => {
+      el.classList.remove('hidden');
+      if (el.id === '' && el.parentElement && el.parentElement.id === 'sidebar-header-row') {
+        el.classList.add('flex');
+      }
+    });
+
+    document.querySelectorAll('.sidebar-nav-btn, .sidebar-action-item').forEach((el) => {
+      el.classList.remove('justify-center');
+      el.classList.add('justify-start');
+    });
+
+    document.querySelectorAll('.sidebar-badge').forEach((badge) => {
+      badge.classList.remove('absolute', 'top-1', 'right-1', 'text-[10px]', 'px-1.5', 'py-0.2');
+      badge.classList.add('ml-auto', 'text-[11px]', 'px-2', 'py-0.5');
+    });
+
+    if (backdrop) {
+      if (isMobile) {
+        backdrop.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+      } else {
+        backdrop.classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
+      }
+    }
+  } else {
+    // Mode Diciutkan: ikon kembali menjadi garis 3 hamburger
+    sidebar.classList.remove('translate-x-0', 'md:w-64');
+    sidebar.classList.add('-translate-x-full', 'md:w-[74px]');
+
+    if (headerRow) {
+      headerRow.classList.remove('justify-between');
+      headerRow.classList.add('justify-center');
+    }
+
+    if (toggleIcon) toggleIcon.className = 'fa-solid fa-bars text-base';
+    if (mobileIcon) mobileIcon.className = 'fa-solid fa-bars text-base';
+    if (toggleBtn) {
+      toggleBtn.setAttribute('aria-expanded', 'false');
+      toggleBtn.setAttribute('title', 'Perlebar Menu Samping');
+    }
+    if (mobileBtn) {
+      mobileBtn.setAttribute('aria-expanded', 'false');
+      mobileBtn.setAttribute('title', 'Buka Menu Samping');
+    }
+
+    document.querySelectorAll('.sidebar-label').forEach((el) => {
+      el.classList.add('hidden');
+      el.classList.remove('flex');
+    });
+
+    document.querySelectorAll('.sidebar-nav-btn, .sidebar-action-item').forEach((el) => {
+      el.classList.remove('justify-start');
+      el.classList.add('justify-center');
+    });
+
+    document.querySelectorAll('.sidebar-badge').forEach((badge) => {
+      badge.classList.remove('ml-auto', 'text-[11px]', 'px-2', 'py-0.5');
+      badge.classList.add('absolute', 'top-1', 'right-1', 'text-[10px]', 'px-1.5', 'py-0.2');
+    });
+
+    if (backdrop) {
+      backdrop.classList.add('hidden');
+    }
+    document.body.classList.remove('overflow-hidden');
+  }
+}
+
+// ============================================================================
 // HELPER OPERASI CLOUD FIRESTORE (BATCH ATOMIK + LOG JEJAK AUDIT)
 // ============================================================================
 async function commitFirestoreOps(operations) {
@@ -232,10 +355,10 @@ function updateCloudSyncBadge(isFromCache) {
   const badge = document.getElementById('cloud-sync-badge');
   if (!badge) return;
   if (isFromCache || !navigator.onLine) {
-    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/40';
+    badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/40 shrink-0';
     badge.innerHTML = '<i class="fa-solid fa-wifi text-amber-300"></i><span>Mode Offline • Tersimpan Lokal</span>';
   } else {
-    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-400/20 text-sky-200 border border-sky-300/30';
+    badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-400/20 text-sky-200 border border-sky-300/30 shrink-0';
     badge.innerHTML = '<i class="fa-solid fa-cloud-check text-sky-300"></i><span>Cloud Terhubung • Real-Time</span>';
   }
 }
@@ -270,7 +393,7 @@ function checkEmptyCloudBanner() {
     descEl.innerHTML = `Ditemukan <b>${legacyStudents.length} data santri</b> dan <b>${legacyTx.length} riwayat transaksi</b> dari penyimpanan lokal browser Anda. Klik tombol biru muda di samping untuk memindahkan semuanya ke Cloud Firestore.`;
   } else {
     btnMigrate.classList.add('hidden');
-    descEl.textContent = 'Silakan klik tombol "Import Excel (.xlsx)" di pojok kanan atas untuk mengunggah file rekap tagihan Anda, atau isi data contoh awal.';
+    descEl.textContent = 'Silakan klik tombol "Import Excel (.xlsx)" di menu samping kiri untuk mengunggah file rekap tagihan Anda, atau isi data contoh awal.';
   }
 }
 
@@ -344,6 +467,8 @@ onAuthStateChanged(auth, (user) => {
     appContainer.classList.remove('hidden');
     document.getElementById('navbar-user-email').textContent = user.email || 'Bendahara Aktif';
     attachUIEventListenersOnce();
+    switchTab(activeTabName);
+    applySidebarState();
     startFirestoreListeners();
   } else {
     stopFirestoreListeners();
@@ -363,6 +488,12 @@ function attachUIEventListenersOnce() {
   });
   window.addEventListener('online', () => updateCloudSyncBadge(false));
   window.addEventListener('offline', () => updateCloudSyncBadge(true));
+  window.addEventListener('resize', () => applySidebarState());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && window.innerWidth < 768 && isSidebarExpanded) {
+      toggleSidebar(false);
+    }
+  });
   uiListenersAttached = true;
 }
 
@@ -532,6 +663,7 @@ async function handleLogin(event) {
 async function logoutBendahara() {
   if (!confirm('Keluar dan kunci halaman keuangan sekarang?')) return;
   try {
+    closeSidebarOnMobile();
     await signOut(auth);
   } catch (err) {
     alert('Gagal keluar: ' + err.message);
@@ -952,6 +1084,7 @@ function computeLinkedStudentSyncs(sourceStudent, paidFeeLabel, paidAmount, touc
 function handleExcelUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
+  closeSidebarOnMobile();
 
   const reader = new FileReader();
   reader.onload = async function (e) {
@@ -3084,21 +3217,31 @@ function handleJSONRestore(event) {
 }
 
 // ============================================================================
-// NAVIGASI TAB & MODAL
+// NAVIGASI TAB SIDEBAR & MODAL
 // ============================================================================
 function switchTab(tabName) {
+  activeTabName = tabName;
+  const alignClass = isSidebarExpanded ? 'justify-start' : 'justify-center';
+
   ['tagihan', 'induk', 'rekap', 'riwayat', 'audit'].forEach((name) => {
-    document.getElementById(`view-${name}`).classList.toggle('hidden', name !== tabName);
+    const viewEl = document.getElementById(`view-${name}`);
+    if (viewEl) viewEl.classList.toggle('hidden', name !== tabName);
+
     const btn = document.getElementById(`tab-${name}`);
+    if (!btn) return;
+
     if (name === tabName) {
-      btn.className = 'tab-btn btn-brand-primary px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition';
+      btn.className = `sidebar-nav-btn w-full flex items-center ${alignClass} gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition relative bg-sky-400 text-slate-950 shadow-md`;
     } else {
-      btn.className = 'tab-btn bg-white text-slate-700 hover:bg-sky-50 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-blue-200 transition';
+      btn.className = `sidebar-nav-btn w-full flex items-center ${alignClass} gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition relative text-sky-100 hover:bg-white/10 hover:text-white`;
     }
   });
 
   const showGlobalFilter = tabName === 'tagihan' || tabName === 'rekap';
-  document.getElementById('global-filter-bar').classList.toggle('hidden', !showGlobalFilter);
+  const filterBar = document.getElementById('global-filter-bar');
+  if (filterBar) filterBar.classList.toggle('hidden', !showGlobalFilter);
+
+  closeSidebarOnMobile();
 }
 
 function openModal(id) {
@@ -3118,6 +3261,8 @@ function closeModal(id) {
 // ============================================================================
 Object.assign(window, {
   handleLogoFallback,
+  toggleSidebar,
+  closeSidebarOnMobile,
   handleLogin,
   logoutBendahara,
   togglePasswordVisibility,
